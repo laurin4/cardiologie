@@ -1,0 +1,13 @@
+.git
+.pytest_cache
+cardiology_venv
+Ba_venv
+.venv
+__pycache__
+*.pyc
+notebooks
+outputs
+wheelhouse
+wheelhouse_linux
+wheelhouse_linux.zip
+.DS_Store

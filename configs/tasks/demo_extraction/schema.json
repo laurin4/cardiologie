@@ -1,0 +1,32 @@
+{
+  "task": "demo_extraction",
+  "description": "Neutral example task: extract fever documentation from a report.",
+  "fields": [
+    {
+      "name": "fever_present",
+      "type": "boolean",
+      "required": true,
+      "default": false,
+      "description": "Whether documented fever is present in the report."
+    },
+    {
+      "name": "fever_grade",
+      "type": "enum",
+      "enum": ["none", "low_grade", "high_grade"],
+      "default": "none",
+      "description": "Documented severity of fever."
+    },
+    {
+      "name": "fever_negated",
+      "type": "boolean",
+      "default": false,
+      "description": "Whether fever is explicitly negated/excluded."
+    },
+    {
+      "name": "max_temperature_c",
+      "type": "number",
+      "default": null,
+      "description": "Highest documented temperature in Celsius, if stated."
+    }
+  ]
+}

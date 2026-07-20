@@ -1,0 +1,10 @@
+[History]
+72-year-old patient admitted for observation. Reports feeling warm since last night
+with chills and night sweats.
+
+[Assessment]
+Patient is febrile. Temperature 39.1 C documented this morning. High fever with
+associated rigors.
+
+[Plan]
+Start antipyretics, obtain blood cultures, monitor temperature every 4 hours.

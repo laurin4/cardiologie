@@ -1,0 +1,8 @@
+[History]
+Patient reports mild malaise over the past two days. No cough or shortness of breath.
+
+[Assessment]
+Low grade fever noted, temperature 37.8 C. No rigors. Mild sweating overnight.
+
+[Plan]
+Symptomatic treatment, encourage fluids, recheck temperature in the evening.

@@ -1,0 +1,8 @@
+[History]
+Routine post-operative follow-up. Patient feels well and denies any complaints.
+
+[Assessment]
+Patient is afebrile. No fever, no chills. Vital signs stable, temperature 36.7 C.
+
+[Plan]
+Continue current management. Discharge planned for tomorrow.

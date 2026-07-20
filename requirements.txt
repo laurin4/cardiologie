@@ -1,0 +1,7 @@
+# Runtime (install with Python 3.9+; see README / RUNBOOK).
+requests
+pandas
+numpy
+
+# Development / testing
+pytest
