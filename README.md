@@ -149,6 +149,31 @@ See `docs/architecture.md`. In short:
 
 `configs/tasks/demo_extraction/` is a complete, copy-pasteable template.
 
+## Cardiology smoke test (server)
+
+Sensitive `HER_Diagnose_*` Excel/CSV stays under `data/raw/` (never committed).
+
+```bash
+# Subset first (e.g. 30 patients)
+python -m src.pipeline.pipeline \
+  --task cardiology_smoke \
+  --reports data/raw/HER_Diagnose_202601_202606.xlsx \
+  --max-reports 30
+```
+
+Outputs (interpretable):
+- `outputs/extractions/cardiology_smoke_results.csv` — enums + one-hot columns + `reasoning` + `stage_path`
+- `outputs/extractions/cardiology_smoke_results.jsonl` — full stage audit trail + LLM prompts/raw output + evidence quotes
+
+Offline example (synthetic, non-sensitive):
+
+```bash
+python -m src.pipeline.pipeline \
+  --task cardiology_smoke \
+  --reports examples/her_diagnose_smoke.csv \
+  --max-reports 3
+```
+
 ## Testing
 
 ```bash
@@ -159,5 +184,5 @@ Tests are deterministic and do not require a network/LLM (the LLM call is mocked
 
 ## Further reading
 
-- `docs/architecture.md` — pipeline stages and how to add tasks.
+- `docs/architecture.md` — pipeline stages, audit trail, and how to add tasks.
 - `RUNBOOK.md` — operational setup and troubleshooting.

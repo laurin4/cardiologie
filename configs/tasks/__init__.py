@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 # Explicit registry of task package names shipped with the framework.
-_REGISTERED_TASKS: List[str] = ["demo_extraction"]
+_REGISTERED_TASKS: List[str] = ["demo_extraction", "cardiology_smoke"]
 
 _CACHE: Dict[str, ExtractionTask] = {}
 

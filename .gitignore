@@ -14,6 +14,8 @@
 *.xls
 *.parquet
 *.jsonl
+!examples/**/*.csv
+!examples/**/*.xlsx
 
 # =====================================================================
 # Outputs / generated artifacts — keep only the .gitkeep placeholder

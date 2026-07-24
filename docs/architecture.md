@@ -27,10 +27,19 @@ flowchart TD
 | LLM extraction | `src/llm/llm_extraction.py` | Schema-guided JSON extraction over the evidence bundle |
 | Schema validation | `src/validation/schema_validation.py` | Coerce types, normalize enums, enforce required, fill defaults |
 | Guardrails | `src/guardrails/clinical_guardrails.py` | Deterministic normalization + consistency checks (no diagnosis) |
-| Orchestration | `src/pipeline/pipeline.py` | Run all stages per report; write CSV + JSONL |
+| Orchestration | `src/pipeline/pipeline.py` | Run all stages per report; write CSV + JSONL with stage audit trail + LLM reasoning |
 
-If the rule layer finds no positive/context evidence, the LLM is skipped and the
-report is recorded as `skipped_no_evidence` with schema defaults.
+If the rule layer finds no positive/context evidence, the LLM is skipped **unless** the task sets `send_full_text_when_no_evidence=True` (used by the cardiology smoke task).
+
+## Audit trail (interpretability)
+
+Every structured JSONL record includes:
+
+- `stage_path` — ordered stage names for that patient
+- `audit.stages` — per-stage actions, counts, and notes
+- `audit.llm` — system/user prompts + raw model output
+- `reasoning` / `evidence_quotes` — model-provided justification (when in the task schema)
+- `one_hot` — enum fields expanded to 0/1 indicators for evaluation tables
 
 ## The task specification
 

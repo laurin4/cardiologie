@@ -2,6 +2,7 @@
 requests
 pandas
 numpy
+openpyxl
 
 # Development / testing
 pytest

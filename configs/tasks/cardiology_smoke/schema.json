@@ -1,0 +1,38 @@
+{
+  "task": "cardiology_smoke",
+  "description": "Smoke test for sternal wound infection and re-operation required.",
+  "fields": [
+    {
+      "name": "sternal_wound_infection",
+      "type": "enum",
+      "enum": ["None", "Superficial", "Deep"],
+      "required": true,
+      "default": "None"
+    },
+    {
+      "name": "reoperation_required",
+      "type": "enum",
+      "enum": ["No", "Yes", "Unknown"],
+      "required": true,
+      "default": "Unknown"
+    },
+    {
+      "name": "information_sufficient",
+      "type": "boolean",
+      "required": true,
+      "default": false
+    },
+    {
+      "name": "reasoning",
+      "type": "string",
+      "required": true,
+      "default": ""
+    },
+    {
+      "name": "evidence_quotes",
+      "type": "array",
+      "required": true,
+      "default": []
+    }
+  ]
+}

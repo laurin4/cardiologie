@@ -1,0 +1,7 @@
+PatientID;FallNummer;OP_TerminNummer;OP_BeginnZeit;OP_EndeZeit;Diagnose_Time;Diagnose_Value
+P001;F1;OP1;2026-01-10 08:00;2026-01-10 12:00;2026-01-11;CABG, unkomplizierter Verlauf
+P001;F1;OP1;2026-01-10 08:00;2026-01-10 12:00;2026-01-14;Tiefe sternale Wundinfektion, Mediastinitis
+P001;F1;OP1;2026-01-10 08:00;2026-01-10 12:00;2026-01-15;Revisionseingriff wegen Infektion
+P002;F2;OP2;2026-02-01 09:00;2026-02-01 13:00;2026-02-02;Aortenklappenersatz
+P002;F2;OP2;2026-02-01 09:00;2026-02-01 13:00;2026-02-03;Kein Wundinfekt, keine Revision notwendig
+P003;F3;OP3;2026-03-01 10:00;2026-03-01 14:00;2026-03-02;Elektive Bypass-Operation, stabil

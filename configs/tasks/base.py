@@ -80,6 +80,9 @@ class ExtractionTask:
     prompt_name: str = ""
     consistency_rules: Tuple[Dict[str, Any], ...] = ()
     language: str = "en"
+    # When True and rule evidence finds nothing actionable, still call the LLM
+    # with the cleaned full report text (useful for smoke tests / sparse keywords).
+    send_full_text_when_no_evidence: bool = False
 
     def field_by_name(self, name: str) -> SchemaField | None:
         for f in self.fields:

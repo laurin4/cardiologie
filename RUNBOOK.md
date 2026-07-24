@@ -84,6 +84,22 @@ Run controls:
 - **Schema errors in output** — the model returned invalid/missing fields; inspect
   `schema_errors` column and the debug dumps.
 
+## Cardiology smoke run (server)
+
+Place the sensitive HER Diagnose export under `data/raw/` (Excel or CSV). Then:
+
+```bash
+export MAX_REPORTS=30
+python -m src.pipeline.pipeline \
+  --task cardiology_smoke \
+  --reports data/raw/HER_Diagnose_202601_202606.xlsx
+```
+
+Interpretability artifacts:
+- CSV columns `reasoning`, `evidence_quotes`, `stage_path`, plus one-hot `field__value` columns
+- JSONL `audit.stages` (preprocessing → rule_evidence → llm_extraction → schema_validation → guardrails)
+- JSONL `audit.llm` (system/user prompts + raw model output)
+
 ## Tests
 
 ```bash
