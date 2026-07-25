@@ -151,13 +151,14 @@ See `docs/architecture.md`. In short:
 
 ## Cardiology smoke test (server)
 
-Sensitive `HER_Diagnose_*` Excel/CSV stays under `data/raw/` (never committed).
+Sensitive `HER_Diagnose_*.csv` stays under `data/raw/` (never committed).
+Excel (`.xlsx`) is still accepted if needed, but CSV is the default.
 
 ```bash
 # Subset first (e.g. 30 patients)
 python -m src.pipeline.pipeline \
   --task cardiology_smoke \
-  --reports data/raw/HER_Diagnose_202601_202606.xlsx \
+  --reports data/raw/HER_Diagnose_202601_202606.csv \
   --max-reports 30
 ```
 

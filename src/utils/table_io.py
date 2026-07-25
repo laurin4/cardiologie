@@ -1,9 +1,8 @@
 """
 Read CSV or Excel tables into a dataframe.
 
-Sensitive clinical exports commonly arrive as ``.xlsx`` on the server and as
-semicolon-separated CSV elsewhere; this module accepts both without callers
-having to care which format is present.
+Sensitive clinical exports are usually semicolon-separated CSV on the server;
+``.xlsx`` is still accepted as a fallback.
 """
 
 from __future__ import annotations

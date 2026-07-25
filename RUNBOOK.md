@@ -86,14 +86,16 @@ Run controls:
 
 ## Cardiology smoke run (server)
 
-Place the sensitive HER Diagnose export under `data/raw/` (Excel or CSV). Then:
+Place the sensitive HER Diagnose export under `data/raw/` as CSV (preferred). Then:
 
 ```bash
 export MAX_REPORTS=30
 python -m src.pipeline.pipeline \
   --task cardiology_smoke \
-  --reports data/raw/HER_Diagnose_202601_202606.xlsx
+  --reports data/raw/HER_Diagnose_202601_202606.csv
 ```
+
+If you omit `--reports` and a `HER_Diagnose*.csv` is in `data/raw/`, that file is used automatically.
 
 Interpretability artifacts:
 - CSV columns `reasoning`, `evidence_quotes`, `stage_path`, plus one-hot `field__value` columns

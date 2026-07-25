@@ -429,7 +429,7 @@ def main() -> None:
     parser.add_argument(
         "--reports",
         default=None,
-        help="Path to a reports CSV/Excel, HER Diagnose table, or a directory of .txt files.",
+        help="Path to a HER Diagnose CSV (preferred), Excel, reports table, or .txt directory.",
     )
     parser.add_argument("--output-dir", default=None, help="Output directory for results.")
     parser.add_argument(

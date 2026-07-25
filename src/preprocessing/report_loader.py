@@ -136,13 +136,18 @@ def load_reports_from_txt_dir(directory: Path) -> List[dict]:
 
 
 def _default_her_diagnose_path() -> Optional[Path]:
-    """Prefer a HER_Diagnose* file under data/raw/ when present."""
+    """Prefer a HER_Diagnose*.csv under data/raw/; fall back to other tabular formats."""
     if not RAW_DATA_DIR.exists():
         return None
     candidates = sorted(RAW_DATA_DIR.glob("HER_Diagnose*"))
-    for path in candidates:
-        if path.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(path):
-            return path
+    csv_first = [p for p in candidates if p.suffix.lower() == ".csv"]
+    other = [
+        p
+        for p in candidates
+        if p.suffix.lower() in _TABULAR_SUFFIXES and p.suffix.lower() != ".csv"
+    ]
+    for path in csv_first + other:
+        return path
     return None
 
 

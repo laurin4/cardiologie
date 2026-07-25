@@ -10,7 +10,7 @@ Plus audit fields so every decision is showcaseable:
   - evidence_quotes
   - information_sufficient  (was there enough Diagnoseliste signal?)
 
-Input: patient-level Diagnoseliste built from HER_Diagnose_* (CSV/Excel).
+Input: patient-level Diagnoseliste built from HER_Diagnose_*.csv (Excel optional).
 """
 
 from __future__ import annotations
