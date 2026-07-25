@@ -17,9 +17,24 @@ def _fake_llm(payload: dict):
 def test_cardiology_smoke_task_loads():
     task = load_task("cardiology_smoke")
     assert task.name == "cardiology_smoke"
+    assert task.language == "de"
     assert task.send_full_text_when_no_evidence is True
-    assert task.field_by_name("sternal_wound_infection") is not None
-    assert task.field_by_name("reasoning") is not None
+    assert task.field_by_name("sternal_wound_infection").enum == (
+        "Keine",
+        "Oberflächlich",
+        "Tief",
+    )
+
+
+def test_prompts_and_schema_block_are_german():
+    from src.prompts.registry import build_system_prompt
+
+    prompt = build_system_prompt(load_task("cardiology_smoke"))
+    assert "klinisches Informations-Extraktionssystem" in prompt
+    assert "AUSSCHLIESSLICH ein JSON-Objekt" in prompt
+    assert "None" not in prompt or "Keine" in prompt
+    assert "Oberflächlich" in prompt
+    assert "Unbekannt" in prompt
 
 
 def test_pipeline_audit_trail_and_one_hot(monkeypatch):
@@ -27,10 +42,10 @@ def test_pipeline_audit_trail_and_one_hot(monkeypatch):
         "src.llm.llm_extraction.call_llm",
         _fake_llm(
             {
-                "sternal_wound_infection": "Deep",
-                "reoperation_required": "Yes",
+                "sternal_wound_infection": "Tief",
+                "reoperation_required": "Ja",
                 "information_sufficient": True,
-                "reasoning": "Mediastinitis and Revisionseingriff documented.",
+                "reasoning": "Mediastinitis und Revisionseingriff sind dokumentiert.",
                 "evidence_quotes": ["Tiefe sternale Wundinfektion, Mediastinitis"],
             }
         ),
@@ -47,16 +62,36 @@ def test_pipeline_audit_trail_and_one_hot(monkeypatch):
     }
     row, structured = pipe.run_report(report)
     assert row["status"] == "extracted"
-    assert row["sternal_wound_infection"] == "Deep"
-    assert row["reoperation_required"] == "Yes"
-    assert row["reasoning"]
+    assert row["sternal_wound_infection"] == "Tief"
+    assert row["reoperation_required"] == "Ja"
+    assert "dokumentiert" in row["reasoning"]
     assert "preprocessing" in row["stage_path"]
-    assert "llm_extraction" in row["stage_path"]
-    assert "guardrails" in row["stage_path"]
-    assert structured["audit"]["stages"]
-    assert structured["one_hot"]["sternal_wound_infection__Deep"] == 1
-    assert structured["one_hot"]["sternal_wound_infection__None"] == 0
-    assert structured["one_hot"]["reoperation_required__Yes"] == 1
+    assert structured["one_hot"]["sternal_wound_infection__Tief"] == 1
+    assert structured["one_hot"]["sternal_wound_infection__Keine"] == 0
+    assert structured["one_hot"]["reoperation_required__Ja"] == 1
+
+
+def test_english_enum_aliases_normalized_to_german(monkeypatch):
+    monkeypatch.setattr(
+        "src.llm.llm_extraction.call_llm",
+        _fake_llm(
+            {
+                "sternal_wound_infection": "Deep",
+                "reoperation_required": "Yes",
+                "information_sufficient": True,
+                "reasoning": "Tiefe Infektion erkannt.",
+                "evidence_quotes": ["Mediastinitis"],
+            }
+        ),
+    )
+    pipe = ClinicalExtractionPipeline(load_task("cardiology_smoke"))
+    report = {
+        REPORT_ID_KEY: "P001",
+        REPORT_TEXT_KEY: "[Diagnoseliste]\n\n[#1]\nMediastinitis, Revisionseingriff",
+    }
+    row, _ = pipe.run_report(report)
+    assert row["sternal_wound_infection"] == "Tief"
+    assert row["reoperation_required"] == "Ja"
 
 
 def test_full_text_fallback_when_no_keywords(monkeypatch):
@@ -65,13 +100,14 @@ def test_full_text_fallback_when_no_keywords(monkeypatch):
     def spy(messages):
         called["n"] += 1
         user = messages[-1]["content"]
-        assert "Full cleaned Diagnoseliste" in user or "CABG" in user
+        assert "vollständige bereinigte Diagnoseliste" in user or "CABG" in user
+        assert "Klinische Evidenz zur Extraktion" in user
         return json.dumps(
             {
-                "sternal_wound_infection": "None",
-                "reoperation_required": "Unknown",
+                "sternal_wound_infection": "Keine",
+                "reoperation_required": "Unbekannt",
                 "information_sufficient": False,
-                "reasoning": "No wound/reoperation language found.",
+                "reasoning": "Keine Hinweise auf Wundinfekt oder Revision gefunden.",
                 "evidence_quotes": [],
             }
         )

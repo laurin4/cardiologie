@@ -25,6 +25,22 @@ def _default_fields(task: ExtractionTask) -> Dict[str, Any]:
     return {f.name: f.default for f in task.fields}
 
 
+def _apply_normalize_maps(raw: Dict[str, Any], task: ExtractionTask) -> Dict[str, Any]:
+    """Apply task normalize maps before schema validation (e.g. English -> German enums)."""
+    out = dict(raw)
+    for rule in task.consistency_rules:
+        if str(rule.get("type", "")) != "normalize":
+            continue
+        field = rule.get("field")
+        mapping = {str(k).strip().lower(): v for k, v in (rule.get("map") or {}).items()}
+        if not field or field not in out or out[field] is None:
+            continue
+        key = str(out[field]).strip().lower()
+        if key in mapping:
+            out[field] = mapping[key]
+    return out
+
+
 def extract_entities(
     evidence_bundle: Dict[str, Any],
     task: ExtractionTask,
@@ -55,11 +71,19 @@ def extract_entities(
         else str(evidence_bundle.get("llm_report_text", "") or "")
     )
     system_prompt = build_system_prompt(task)
-    user_prompt = (
-        "Clinical evidence for extraction. Prefer the labelled snippets when "
-        "present; otherwise use the full Diagnoseliste / report text below.\n\n"
-        f"{llm_text}\n"
-    )
+    if (task.language or "en").lower().startswith("de"):
+        user_prompt = (
+            "Klinische Evidenz zur Extraktion. Bevorzuge die gelabelten Snippets, "
+            "falls vorhanden; andernfalls nutze die vollständige Diagnoseliste / "
+            "den Berichtstext unten.\n\n"
+            f"{llm_text}\n"
+        )
+    else:
+        user_prompt = (
+            "Clinical evidence for extraction. Prefer the labelled snippets when "
+            "present; otherwise use the full Diagnoseliste / report text below.\n\n"
+            f"{llm_text}\n"
+        )
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -69,6 +93,7 @@ def extract_entities(
     try:
         raw_output = call_llm(messages)
         parsed = parse_llm_json_output(raw_output, f"{task.name} / extraction")
+        parsed = _apply_normalize_maps(parsed, task)
         validated, errors = validate_against_schema(parsed, task)
         return {
             "fields": validated,

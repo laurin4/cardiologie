@@ -196,10 +196,17 @@ class ClinicalExtractionPipeline:
             )
         elif self.task.send_full_text_when_no_evidence and text.strip():
             used_full_text_fallback = True
-            llm_text_used = (
-                "No rule-based evidence snippets matched. Full cleaned Diagnoseliste "
-                "/ report text follows:\n\n" + text
-            )
+            if (self.task.language or "en").lower().startswith("de"):
+                llm_text_used = (
+                    "Keine regelbasierten Evidenz-Snippets gefunden. Es folgt die "
+                    "vollständige bereinigte Diagnoseliste / der Berichtstext:\n\n"
+                    + text
+                )
+            else:
+                llm_text_used = (
+                    "No rule-based evidence snippets matched. Full cleaned Diagnoseliste "
+                    "/ report text follows:\n\n" + text
+                )
             result = extract_entities(
                 evidence,
                 self.task,

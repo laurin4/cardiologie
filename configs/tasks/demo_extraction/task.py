@@ -17,34 +17,34 @@ from configs.tasks.base import EvidenceGroup, ExtractionTask, SchemaField
 
 TASK = ExtractionTask(
     name="demo_extraction",
-    description="Neutral example task: extract fever documentation from a report.",
-    language="en",
+    description="Neutrales Beispiel: Fieberdokumentation aus einem Bericht extrahieren.",
+    language="de",
     fields=(
         SchemaField(
             name="fever_present",
             type="boolean",
             required=True,
             default=False,
-            description="Whether documented fever is present in the report.",
+            description="Ob dokumentiertes Fieber im Bericht vorliegt.",
         ),
         SchemaField(
             name="fever_grade",
             type="enum",
-            enum=("none", "low_grade", "high_grade"),
-            default="none",
-            description="Documented severity of fever.",
+            enum=("keine", "niedrig", "hoch"),
+            default="keine",
+            description="Dokumentierter Schweregrad des Fiebers.",
         ),
         SchemaField(
             name="fever_negated",
             type="boolean",
             default=False,
-            description="Whether fever is explicitly negated/excluded.",
+            description="Ob Fieber explizit verneint/ausgeschlossen ist.",
         ),
         SchemaField(
             name="max_temperature_c",
             type="number",
             default=None,
-            description="Highest documented temperature in Celsius, if stated.",
+            description="Höchste dokumentierte Temperatur in Celsius, falls angegeben.",
         ),
     ),
     evidence_groups=(
@@ -87,7 +87,16 @@ TASK = ExtractionTask(
     prompt_name="demo_extraction",
     consistency_rules=(
         {"type": "conditional_set", "if": {"fever_negated": True}, "set": {"fever_present": False}},
-        {"type": "conditional_set", "if": {"fever_present": False}, "set": {"fever_grade": "none"}},
+        {"type": "conditional_set", "if": {"fever_present": False}, "set": {"fever_grade": "keine"}},
+        {
+            "type": "normalize",
+            "field": "fever_grade",
+            "map": {
+                "none": "keine",
+                "low_grade": "niedrig",
+                "high_grade": "hoch",
+            },
+        },
         {"type": "impossible_combination", "when": {"fever_present": True, "fever_negated": True}},
         {"type": "requires", "if": {"fever_present": True}, "then_required": ["fever_grade"]},
     ),

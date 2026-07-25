@@ -10,13 +10,21 @@ def _fake_llm_factory():
         user = messages[-1]["content"].lower()
         if "afebrile" in user or "no fever" in user:
             return json.dumps(
-                {"fever_present": False, "fever_grade": "none", "fever_negated": True,
-                 "max_temperature_c": None}
+                {
+                    "fever_present": False,
+                    "fever_grade": "keine",
+                    "fever_negated": True,
+                    "max_temperature_c": None,
+                }
             )
-        grade = "low_grade" if "low grade" in user else "high_grade"
+        grade = "niedrig" if "low grade" in user else "hoch"
         return json.dumps(
-            {"fever_present": True, "fever_grade": grade, "fever_negated": False,
-             "max_temperature_c": 39.1}
+            {
+                "fever_present": True,
+                "fever_grade": grade,
+                "fever_negated": False,
+                "max_temperature_c": 39.1,
+            }
         )
 
     return fake_call_llm
@@ -32,7 +40,7 @@ def test_pipeline_positive(monkeypatch):
     row, structured = pipe.run_report(report)
     assert row["status"] == "extracted"
     assert row["fever_present"] is True
-    assert row["fever_grade"] == "high_grade"
+    assert row["fever_grade"] == "hoch"
     assert structured["fields"]["fever_present"] is True
 
 
@@ -46,7 +54,7 @@ def test_pipeline_negation(monkeypatch):
     row, _ = pipe.run_report(report)
     assert row["fever_present"] is False
     assert row["fever_negated"] is True
-    assert row["fever_grade"] == "none"
+    assert row["fever_grade"] == "keine"
 
 
 def test_pipeline_skips_when_no_evidence(monkeypatch):

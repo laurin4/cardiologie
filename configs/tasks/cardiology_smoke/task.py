@@ -2,15 +2,16 @@
 Cardiology smoke extraction task.
 
 Smoke-test scope (expand later to the full cardiology variable list):
-  1. sternal_wound_infection  -> None | Superficial | Deep
-  2. reoperation_required     -> No | Yes | Unknown
+  1. sternal_wound_infection  -> Keine | Oberflächlich | Tief
+  2. reoperation_required     -> Nein | Ja | Unbekannt
 
-Plus audit fields so every decision is showcaseable:
+Plus audit fields (German LLM output):
   - reasoning
   - evidence_quotes
-  - information_sufficient  (was there enough Diagnoseliste signal?)
+  - information_sufficient
 
 Input: patient-level Diagnoseliste built from HER_Diagnose_*.csv (Excel optional).
+Prompts and model outputs are German; code identifiers stay English.
 """
 
 from __future__ import annotations
@@ -20,8 +21,8 @@ from configs.tasks.base import EvidenceGroup, ExtractionTask, SchemaField
 TASK = ExtractionTask(
     name="cardiology_smoke",
     description=(
-        "Smoke test: extract sternal wound infection and re-operation required "
-        "from a patient Diagnoseliste, with explicit LLM reasoning."
+        "Smoke-Test: Sternale Wundinfektion und Re-Operation erforderlich "
+        "aus einer Patienten-Diagnoseliste extrahieren, mit deutscher Begründung."
     ),
     language="de",
     send_full_text_when_no_evidence=True,
@@ -29,18 +30,18 @@ TASK = ExtractionTask(
         SchemaField(
             name="sternal_wound_infection",
             type="enum",
-            enum=("None", "Superficial", "Deep"),
+            enum=("Keine", "Oberflächlich", "Tief"),
             required=True,
-            default="None",
-            description="Sternal wound infection severity.",
+            default="Keine",
+            description="Schweregrad der sternalen Wundinfektion.",
         ),
         SchemaField(
             name="reoperation_required",
             type="enum",
-            enum=("No", "Yes", "Unknown"),
+            enum=("Nein", "Ja", "Unbekannt"),
             required=True,
-            default="Unknown",
-            description="Whether any re-operation was required.",
+            default="Unbekannt",
+            description="Ob eine Re-Operation erforderlich war.",
         ),
         SchemaField(
             name="information_sufficient",
@@ -48,8 +49,8 @@ TASK = ExtractionTask(
             required=True,
             default=False,
             description=(
-                "True if the Diagnoseliste contained enough information to assign "
-                "the clinical fields confidently; False if the text is silent/ambiguous."
+                "True, wenn die Diagnoseliste genug Information enthält, um die "
+                "klinischen Felder mit angemessener Sicherheit zu setzen."
             ),
         ),
         SchemaField(
@@ -57,14 +58,14 @@ TASK = ExtractionTask(
             type="string",
             required=True,
             default="",
-            description="Step-by-step clinical reasoning for the assigned values.",
+            description="Schrittweise klinische Begründung auf Deutsch.",
         ),
         SchemaField(
             name="evidence_quotes",
             type="array",
             required=True,
             default=[],
-            description="Verbatim quotes from the Diagnoseliste that support the decisions.",
+            description="Wörtliche Zitate aus der Diagnoseliste als Belege.",
         ),
     ),
     evidence_groups=(
@@ -154,6 +155,31 @@ TASK = ExtractionTask(
     ),
     prompt_name="cardiology_smoke",
     consistency_rules=(
+        {
+            "type": "normalize",
+            "field": "sternal_wound_infection",
+            "map": {
+                "None": "Keine",
+                "none": "Keine",
+                "Superficial": "Oberflächlich",
+                "superficial": "Oberflächlich",
+                "Deep": "Tief",
+                "deep": "Tief",
+                "Oberflaechlich": "Oberflächlich",
+            },
+        },
+        {
+            "type": "normalize",
+            "field": "reoperation_required",
+            "map": {
+                "No": "Nein",
+                "no": "Nein",
+                "Yes": "Ja",
+                "yes": "Ja",
+                "Unknown": "Unbekannt",
+                "unknown": "Unbekannt",
+            },
+        },
         {
             "type": "requires",
             "if": {"information_sufficient": True},

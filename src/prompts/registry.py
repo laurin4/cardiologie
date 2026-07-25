@@ -2,8 +2,8 @@
 Prompt registry.
 
 Loads prompt templates from ``prompts/<name>.txt`` and builds a schema-aware
-system prompt for a task. Keeping prompts as files (not code) lets new tasks ship
-their own instructions without touching the framework.
+system prompt for a task. Schema-block instructions follow ``task.language``
+(German for clinical tasks).
 """
 
 from __future__ import annotations
@@ -25,22 +25,40 @@ def load_prompt(name: str) -> str:
 
 def render_schema_block(task: ExtractionTask) -> str:
     """Human/LLM-readable description of the task output schema."""
-    lines = ["Return ONLY a JSON object with exactly these fields:"]
+    if (task.language or "en").lower().startswith("de"):
+        lines = [
+            "Gib AUSSCHLIESSLICH ein JSON-Objekt mit genau diesen Feldern zurück:",
+        ]
+        footer = (
+            "Keine zusätzlichen Keys und keinen Kommentartext. "
+            "Die Ausgabe muss gültiges JSON sein. "
+            "Alle Freitextwerte auf Deutsch."
+        )
+        required_label = "pflicht"
+        one_of_label = "eines von"
+        default_label = "default"
+    else:
+        lines = ["Return ONLY a JSON object with exactly these fields:"]
+        footer = "Do not add extra keys or commentary. Output must be valid JSON."
+        required_label = "required"
+        one_of_label = "one of"
+        default_label = "default"
+
     for f in task.fields:
         parts = [f'  "{f.name}": <{f.type}>']
         meta = []
         if f.required:
-            meta.append("required")
+            meta.append(required_label)
         if f.type == "enum":
-            meta.append("one of: " + ", ".join(f.enum))
+            meta.append(f"{one_of_label}: " + ", ".join(f.enum))
         if f.default is not None:
-            meta.append(f"default: {f.default}")
+            meta.append(f"{default_label}: {f.default}")
         if f.description:
             meta.append(f.description)
         if meta:
             parts.append("  # " + "; ".join(meta))
         lines.append("".join(parts))
-    lines.append("Do not add extra keys or commentary. Output must be valid JSON.")
+    lines.append(footer)
     return "\n".join(lines)
 
 
