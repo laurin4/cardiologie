@@ -54,3 +54,52 @@ def done_keys(rows: Sequence[Dict[str, Any]]) -> Set[Tuple[str, ...]]:
 
 def filter_unprocessed(reports: Sequence[dict], done: Set[Tuple[str, ...]]) -> List[dict]:
     return [r for r in reports if resume_key(r) not in done]
+
+
+def load_jsonl(path: Path) -> List[Dict[str, Any]]:
+    """Load a JSONL file into a list of dicts (empty list if missing)."""
+    if not path.exists():
+        return []
+    out: List[Dict[str, Any]] = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            out.append(json.loads(line))
+    return out
+
+
+def failed_keys(rows: Sequence[Dict[str, Any]], status_field: str = "status") -> Set[Tuple[str, ...]]:
+    """Return resume keys for rows whose status is ``failed``."""
+    return {
+        resume_key(row)
+        for row in rows
+        if str(row.get(status_field, "")).strip().lower() == "failed"
+    }
+
+
+def merge_rows_by_key(
+    existing: Sequence[Dict[str, Any]],
+    updates: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Replace existing rows with matching keys from *updates*; append new keys.
+
+    Preserves the original order of *existing*, then appends any update keys
+    that were not already present.
+    """
+    update_map = {resume_key(row): row for row in updates}
+    used: Set[Tuple[str, ...]] = set()
+    merged: List[Dict[str, Any]] = []
+    for row in existing:
+        key = resume_key(row)
+        if key in update_map:
+            merged.append(update_map[key])
+            used.add(key)
+        else:
+            merged.append(row)
+    for key, row in update_map.items():
+        if key not in used:
+            merged.append(row)
+    return merged

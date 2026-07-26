@@ -22,7 +22,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from configs.config import (
     MAX_REPORTS,
@@ -353,14 +353,49 @@ def _resume_enabled() -> bool:
     return os.environ.get("PIPELINE_RESUME", "").strip().lower() in ("1", "true", "yes", "auto")
 
 
+def _apply_llm_timeout(seconds: Optional[int]) -> None:
+    """Raise LLM HTTP timeout for this process (used for failed-row retries)."""
+    if seconds is None:
+        return
+    if seconds <= 0:
+        raise ValueError("llm_timeout must be a positive integer (seconds).")
+    os.environ["LLM_TIMEOUT"] = str(seconds)
+    # model_config.TIMEOUT is read at import time; patch the live module values.
+    import src.llm.llm_interface as llm_interface
+    import src.llm.model_config as model_config
+
+    model_config.TIMEOUT = seconds
+    llm_interface.TIMEOUT = seconds
+    print(f"LLM_TIMEOUT set to {seconds}s for this run")
+
+
+def _count_statuses(rows: Sequence[Dict[str, Any]]) -> Tuple[int, int, int]:
+    n_extracted = n_skipped = n_failed = 0
+    for row in rows:
+        status = str(row.get("status", ""))
+        n_extracted += status == STATUS_EXTRACTED
+        n_skipped += status == STATUS_SKIPPED
+        n_failed += status == STATUS_FAILED
+    return n_extracted, n_skipped, n_failed
+
+
 def run(
     task_name: str,
     *,
     source: Optional[Path] = None,
     output_dir: Optional[Path] = None,
     max_reports: Optional[int] = MAX_REPORTS,
+    retry_failed: bool = False,
+    llm_timeout: Optional[int] = None,
 ) -> Path:
-    """Run the pipeline for *task_name* and write CSV + JSONL results."""
+    """
+    Run the pipeline for *task_name* and write CSV + JSONL results.
+
+    ``retry_failed=True`` re-runs only rows with ``status=failed`` from an existing
+    results CSV and merges them back (successful rows are kept).
+    """
+    _apply_llm_timeout(llm_timeout)
+
     task = load_task(task_name)
     pipeline = ClinicalExtractionPipeline(task)
 
@@ -374,32 +409,108 @@ def run(
     jsonl_path = out_dir / f"{task.name}_results.jsonl"
     checkpoint_path = out_dir / f"{task.name}_results.checkpoint.csv"
 
-    rows: List[Dict[str, Any]] = []
-    if _resume_enabled():
-        rows = records_io.load_checkpoint_rows(checkpoint_path)
-        if rows:
-            print(f"RESUME loaded {len(rows)} rows from {checkpoint_path}")
-    done = records_io.done_keys(rows)
-    todo = records_io.filter_unprocessed(reports, done)
+    existing_rows: List[Dict[str, Any]] = []
+    existing_structured: List[Dict[str, Any]] = []
 
-    print(f"=== {task.name}: Hybrid NLP-LLM extraction ===")
-    print(f"reports_total={len(reports)} resumed={len(rows)} remaining={len(todo)}")
+    if retry_failed:
+        if not csv_path.exists():
+            raise FileNotFoundError(
+                f"--retry-failed requires existing results at {csv_path}"
+            )
+        all_existing = records_io.load_checkpoint_rows(csv_path)
+        all_structured = records_io.load_jsonl(jsonl_path)
+        n_failed_existing = sum(
+            1 for row in all_existing if str(row.get("status", "")).lower() == "failed"
+        )
+        if n_failed_existing == 0:
+            print(f"No failed rows in {csv_path}; nothing to retry.")
+            return csv_path
 
-    structured_records: List[Dict[str, Any]] = []
-    n_extracted = n_skipped = n_failed = 0
-    for i, report in enumerate(todo, start=len(rows) + 1):
-        row, structured = pipeline.run_report(report)
-        rows.append(row)
-        structured_records.append(structured)
-        status = row["status"]
-        n_extracted += status == STATUS_EXTRACTED
-        n_skipped += status == STATUS_SKIPPED
-        n_failed += status == STATUS_FAILED
+        # Keep only non-failed rows; re-run every input report that is not already OK.
+        # This is robust when report_id is empty (match via source_row_id / absence from OK set).
+        existing_rows = [
+            row
+            for row in all_existing
+            if str(row.get("status", "")).strip().lower() != "failed"
+        ]
+        existing_structured = [
+            rec
+            for rec in all_structured
+            if str(rec.get("status", "")).strip().lower() != "failed"
+        ]
+        ok_keys = records_io.done_keys(existing_rows)
+        ok_report_ids = {
+            str(row.get("report_id", "")).strip()
+            for row in existing_rows
+            if str(row.get("report_id", "")).strip()
+        }
+        todo = [
+            r
+            for r in reports
+            if records_io.resume_key(r) not in ok_keys
+            and str(r.get(REPORT_ID_KEY, "")).strip() not in ok_report_ids
+        ]
+        print(f"=== {task.name}: RETRY failed rows ===")
         print(
-            f"[{i}/{len(reports)}] report_id={row['report_id']} status={status} "
+            f"failed_in_csv={n_failed_existing} kept_ok={len(existing_rows)} "
+            f"retrying={len(todo)}"
+        )
+        if not todo:
+            print(
+                "WARNING: failed rows found in CSV but no matching input reports. "
+                "Check report_id / source_row_id alignment."
+            )
+            return csv_path
+    else:
+        rows: List[Dict[str, Any]] = []
+        if _resume_enabled():
+            rows = records_io.load_checkpoint_rows(checkpoint_path)
+            if not rows and csv_path.exists():
+                rows = records_io.load_checkpoint_rows(csv_path)
+            if rows:
+                print(f"RESUME loaded {len(rows)} rows")
+        done = records_io.done_keys(rows)
+        # Do not treat prior failures as done when resuming a crashed run that
+        # already wrote a partial CSV — only skip non-failed completed rows.
+        done_ok = {
+            records_io.resume_key(row)
+            for row in rows
+            if str(row.get("status", "")).strip().lower() != "failed"
+        }
+        todo = records_io.filter_unprocessed(reports, done_ok if rows else done)
+        existing_rows = [
+            row
+            for row in rows
+            if str(row.get("status", "")).strip().lower() != "failed"
+        ]
+        existing_structured = [
+            rec
+            for rec in records_io.load_jsonl(jsonl_path)
+            if str(rec.get("status", "")).strip().lower() != "failed"
+        ]
+        print(f"=== {task.name}: Hybrid NLP-LLM extraction ===")
+        print(
+            f"reports_total={len(reports)} kept={len(existing_rows)} remaining={len(todo)}"
+        )
+
+    new_rows: List[Dict[str, Any]] = []
+    new_structured: List[Dict[str, Any]] = []
+    for i, report in enumerate(todo, start=1):
+        row, structured = pipeline.run_report(report)
+        new_rows.append(row)
+        new_structured.append(structured)
+        print(
+            f"[{i}/{len(todo)}] report_id={row['report_id']} status={row['status']} "
             f"evidence={row['keyword_hits_count']} method={row['reduction_method']} "
             f"path={row['stage_path']}"
         )
+
+    if retry_failed or existing_rows:
+        rows = records_io.merge_rows_by_key(existing_rows, new_rows)
+        structured_records = records_io.merge_rows_by_key(existing_structured, new_structured)
+    else:
+        rows = new_rows
+        structured_records = new_structured
 
     records_io.write_csv(rows, csv_path, pipeline.fieldnames())
     records_io.write_jsonl(structured_records, jsonl_path)
@@ -409,6 +520,7 @@ def run(
         except OSError:
             LOGGER.warning("Could not remove checkpoint: %s", checkpoint_path)
 
+    n_extracted, n_skipped, n_failed = _count_statuses(rows)
     print("\n=== Run summary ===")
     print(f"total={len(rows)} extracted={n_extracted} skipped={n_skipped} failed={n_failed}")
     print(f"CSV:   {csv_path}")
@@ -444,6 +556,17 @@ def main() -> None:
         default=None,
         help="Cap number of reports/patients (int or 'all'). Overrides MAX_REPORTS env.",
     )
+    parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="Re-run only rows with status=failed from the existing results CSV and merge.",
+    )
+    parser.add_argument(
+        "--llm-timeout",
+        type=int,
+        default=None,
+        help="Override LLM_TIMEOUT seconds for this run (useful with --retry-failed).",
+    )
     args = parser.parse_args()
 
     from configs.config import parse_max_reports_env
@@ -453,7 +576,14 @@ def main() -> None:
     )
     source = Path(args.reports) if args.reports else None
     output_dir = Path(args.output_dir) if args.output_dir else None
-    run(args.task, source=source, output_dir=output_dir, max_reports=max_reports)
+    run(
+        args.task,
+        source=source,
+        output_dir=output_dir,
+        max_reports=max_reports,
+        retry_failed=args.retry_failed,
+        llm_timeout=args.llm_timeout,
+    )
 
 
 if __name__ == "__main__":
