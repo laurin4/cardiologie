@@ -1,14 +1,10 @@
-"""Build a minimal Excel review sheet for manual consistency checks."""
+"""Build a minimal review sheet for manual consistency checks (CSV or Excel)."""
 
 from __future__ import annotations
 
 import csv
 import json
 from pathlib import Path
-
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font
-from openpyxl.utils import get_column_letter
 
 COLUMNS = [
     "patient_id",
@@ -40,10 +36,10 @@ def _quotes_cell(raw: object) -> str:
     try:
         parsed = json.loads(s)
         if isinstance(parsed, list):
-            return "\n".join(f"- {_clean(x)}" for x in parsed if _clean(x))
+            return " | ".join(_clean(x) for x in parsed if _clean(x))
     except Exception:
         pass
-    return s
+    return s.replace("\n", " | ")
 
 
 def load_result_rows(csv_path: Path) -> list[dict]:
@@ -65,7 +61,7 @@ def build_review_rows(result_rows: list[dict]) -> list[dict]:
                 "reoperation_required": _clean(row.get("reoperation_required")),
                 "information_sufficient": _clean(row.get("information_sufficient")),
                 "evidence_quotes": _quotes_cell(row.get("evidence_quotes")),
-                "reasoning": _clean(row.get("reasoning")),
+                "reasoning": _clean(row.get("reasoning")).replace("\n", " "),
                 "correct_swi": "",
                 "correct_reop": "",
                 "notes": "",
@@ -74,7 +70,26 @@ def build_review_rows(result_rows: list[dict]) -> list[dict]:
     return out
 
 
+def write_csv(rows: list[dict], out_path: Path) -> None:
+    """Write semicolon-separated CSV (Excel-friendly on DE Windows)."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=COLUMNS,
+            delimiter=";",
+            extrasaction="ignore",
+            quoting=csv.QUOTE_MINIMAL,
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def write_excel(rows: list[dict], out_path: Path) -> None:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
+
     wb = Workbook()
     ws = wb.active
     ws.title = "review"

@@ -122,12 +122,17 @@ windows are kept. Short texts are unchanged.
 
 ### Manual consistency review sheet
 
+Default is **CSV** (semicolon-separated, UTF-8 BOM) so it opens cleanly in Excel on USZ Windows:
+
 ```bash
 python scripts/export_review_sheet.py --task cardiology_smoke --max-rows 20
+# -> outputs/evaluation/cardiology_smoke_review.csv
+
+# optional Excel:
+python scripts/export_review_sheet.py --task cardiology_smoke --max-rows 20 --format xlsx
 ```
 
-Writes `outputs/evaluation/cardiology_smoke_review.xlsx` with predictions plus empty
-`correct_swi` / `correct_reop` / `notes` columns for your manual check.
+Open the CSV in Excel, fill `correct_swi` / `correct_reop` / `notes`.
 
 ## Tests
 
