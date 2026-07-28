@@ -4,7 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from configs.config import PREDICTIONS_DIR
 from src.evaluation.review_sheet import build_review_rows, load_result_rows, write_excel
@@ -31,7 +36,7 @@ def main() -> None:
     out_path = (
         Path(args.out)
         if args.out
-        else Path("outputs/evaluation") / f"{args.task}_review.xlsx"
+        else _ROOT / "outputs" / "evaluation" / f"{args.task}_review.xlsx"
     )
 
     rows = build_review_rows(load_result_rows(csv_path))
