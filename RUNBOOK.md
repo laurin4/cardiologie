@@ -116,6 +116,10 @@ python -m src.pipeline.pipeline \
 
 Successful rows stay untouched; failed rows are replaced in the same CSV/JSONL.
 
+Large Diagnoselisten (> ``EVIDENCE_MAX_FULL_TEXT_CHARS``, default 12000) are
+automatically shortened on full-text fallback only: entry headers + keyword
+windows are kept. Short texts are unchanged.
+
 ## Tests
 
 ```bash

@@ -100,7 +100,7 @@ def test_full_text_fallback_when_no_keywords(monkeypatch):
     def spy(messages):
         called["n"] += 1
         user = messages[-1]["content"]
-        assert "vollständige bereinigte Diagnoseliste" in user or "CABG" in user
+        assert "bereinigte Diagnoseliste" in user or "CABG" in user
         assert "Klinische Evidenz zur Extraktion" in user
         return json.dumps(
             {

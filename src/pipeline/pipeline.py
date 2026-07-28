@@ -196,17 +196,24 @@ class ClinicalExtractionPipeline:
             )
         elif self.task.send_full_text_when_no_evidence and text.strip():
             used_full_text_fallback = True
+            from src.extraction.text_budget import fit_text_for_llm
+
+            capped_text, was_truncated = fit_text_for_llm(text, self.task)
             if (self.task.language or "en").lower().startswith("de"):
-                llm_text_used = (
+                prefix = (
                     "Keine regelbasierten Evidenz-Snippets gefunden. Es folgt die "
-                    "vollständige bereinigte Diagnoseliste / der Berichtstext:\n\n"
-                    + text
+                    "bereinigte Diagnoseliste / der Berichtstext"
+                    + (" (wegen Länge gekürzt)" if was_truncated else "")
+                    + ":\n\n"
                 )
             else:
-                llm_text_used = (
-                    "No rule-based evidence snippets matched. Full cleaned Diagnoseliste "
-                    "/ report text follows:\n\n" + text
+                prefix = (
+                    "No rule-based evidence snippets matched. Cleaned Diagnoseliste "
+                    "/ report text follows"
+                    + (" (truncated for length)" if was_truncated else "")
+                    + ":\n\n"
                 )
+            llm_text_used = prefix + capped_text
             result = extract_entities(
                 evidence,
                 self.task,
@@ -225,6 +232,9 @@ class ClinicalExtractionPipeline:
                 "user_prompt": result.get("user_prompt", ""),
                 "raw_output": raw_output,
                 "debug_path": result.get("debug_path"),
+                "full_text_truncated": was_truncated,
+                "full_text_chars_original": len(text),
+                "full_text_chars_sent": len(capped_text),
             }
             status = (
                 STATUS_FAILED
@@ -236,10 +246,17 @@ class ClinicalExtractionPipeline:
                     "stage": "llm_extraction",
                     "action": "extract_entities",
                     "llm_called": True,
-                    "input_mode": "full_text_fallback",
+                    "input_mode": (
+                        "full_text_fallback_truncated"
+                        if was_truncated
+                        else "full_text_fallback"
+                    ),
                     "schema_errors": schema_errors,
                     "reasoning": reasoning,
                     "evidence_quotes": evidence_quotes,
+                    "full_text_truncated": was_truncated,
+                    "full_text_chars_original": len(text),
+                    "full_text_chars_sent": len(capped_text),
                 }
             )
         else:
