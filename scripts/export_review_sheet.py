@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from configs.loader import load_task_config
+from configs.config import PREDICTIONS_DIR
+from configs.tasks import available_tasks, load_task
 from src.evaluation.review_sheet import (
     build_review_rows,
     load_result_rows,
@@ -26,7 +27,7 @@ def main() -> None:
     parser.add_argument(
         "--results",
         default=None,
-        help="Path to predictions CSV (default: outputs/results/<task>_results.csv)",
+        help="Path to predictions CSV (default: outputs/extractions/<task>_results.csv)",
     )
     parser.add_argument(
         "--format",
@@ -43,8 +44,16 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42, help="Shuffle seed when --max-rows is set")
     args = parser.parse_args()
 
-    cfg = load_task_config(args.task)
-    results_path = Path(args.results) if args.results else Path(cfg["paths"]["results_csv"])
+    try:
+        load_task(args.task)
+    except KeyError as exc:
+        raise SystemExit(f"{exc}. Available: {available_tasks()}") from exc
+
+    results_path = (
+        Path(args.results)
+        if args.results
+        else PREDICTIONS_DIR / f"{args.task}_results.csv"
+    )
     if not results_path.exists():
         raise SystemExit(f"Results not found: {results_path}")
 
