@@ -120,6 +120,15 @@ Large Diagnoselisten (> ``EVIDENCE_MAX_FULL_TEXT_CHARS``, default 12000) are
 automatically shortened on full-text fallback only: entry headers + keyword
 windows are kept. Short texts are unchanged.
 
+### Manual consistency review sheet
+
+```bash
+python scripts/export_review_sheet.py --task cardiology_smoke --max-rows 20
+```
+
+Writes `outputs/evaluation/cardiology_smoke_review.xlsx` with predictions plus empty
+`correct_swi` / `correct_reop` / `notes` columns for your manual check.
+
 ## Tests
 
 ```bash
