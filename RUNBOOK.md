@@ -102,9 +102,13 @@ Interpretability artifacts:
 - JSONL `audit.stages` (preprocessing → rule_evidence → llm_extraction → …; **per variable** for cardiology_smoke)
 - JSONL `audit.llm.per_variable` (system/user prompts + raw model output for each variable)
 
-Cardiology smoke labels are binary presence: `Nein | Ja | Unbekannt` (no Superficial/Deep yet).
-Each variable uses its own prompt under `prompts/cardiology_smoke_swi.txt` /
-`prompts/cardiology_smoke_reop.txt` and its own keyword subset.
+Cardiology smoke labels are mostly binary presence: `Nein | Ja | Unbekannt`
+(CVA: `Keine | TIA | Schlaganfall`; Re-Op-/Re-Thorakotomie-Kontext: Freitext).
+**10 LLM calls per patient** (one per variable). Start with `--max-reports 2`
+when testing.
+
+Prompts live under `prompts/cardiology_smoke_*.txt` and `prompts/cardiology_var_*.txt`.
+Keywords: `configs/tasks/cardiology_smoke/task.py`.
 
 ### Retry only failed rows (empty LLM / timeout)
 

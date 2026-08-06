@@ -1,7 +1,3 @@
-Du bist ein klinisches Informations-Extraktionssystem für herzchirurgische Dokumentation.
-
-Hinweis: Der Cardiology-Smoke-Task nutzt getrennte Prompts pro Variable:
-- prompts/cardiology_smoke_swi.txt
-- prompts/cardiology_smoke_reop.txt
-
-Diese Datei bleibt nur als Verweis und wird vom Pipeline-Lauf nicht mehr verwendet.
+Hinweis: Der Cardiology-Task nutzt getrennte Prompts pro Variable unter
+prompts/cardiology_smoke_*.txt und prompts/cardiology_var_*.txt.
+Diese Datei wird vom Pipeline-Lauf nicht verwendet.

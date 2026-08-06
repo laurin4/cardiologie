@@ -6,11 +6,23 @@ import csv
 import json
 from pathlib import Path
 
+CLINICAL_COLUMNS = [
+    "new_permanent_pacemaker",
+    "postop_atrial_fibrillation",
+    "cerebrovascular_event",
+    "sternal_wound_infection",
+    "reoperation_required",
+    "reoperation_context",
+    "multi_system_failure",
+    "rethoracotomy",
+    "rethoracotomy_context",
+    "liver_cirrhosis",
+]
+
 COLUMNS = [
     "patient_id",
     "status",
-    "sternal_wound_infection",
-    "reoperation_required",
+    *CLINICAL_COLUMNS,
     "information_sufficient",
     "evidence_quotes",
     "reasoning",
@@ -53,20 +65,19 @@ def build_review_rows(result_rows: list[dict]) -> list[dict]:
         patient_id = _clean(row.get("report_id")) or _clean(row.get("patient_id"))
         if not patient_id:
             patient_id = _clean(row.get("source_row_id")) or _clean(row.get("report_name"))
-        out.append(
-            {
-                "patient_id": patient_id,
-                "status": _clean(row.get("status")),
-                "sternal_wound_infection": _clean(row.get("sternal_wound_infection")),
-                "reoperation_required": _clean(row.get("reoperation_required")),
-                "information_sufficient": _clean(row.get("information_sufficient")),
-                "evidence_quotes": _quotes_cell(row.get("evidence_quotes")),
-                "reasoning": _clean(row.get("reasoning")).replace("\n", " "),
-                "correct_swi": "",
-                "correct_reop": "",
-                "notes": "",
-            }
-        )
+        item = {
+            "patient_id": patient_id,
+            "status": _clean(row.get("status")),
+            "information_sufficient": _clean(row.get("information_sufficient")),
+            "evidence_quotes": _quotes_cell(row.get("evidence_quotes")),
+            "reasoning": _clean(row.get("reasoning")).replace("\n", " "),
+            "correct_swi": "",
+            "correct_reop": "",
+            "notes": "",
+        }
+        for col in CLINICAL_COLUMNS:
+            item[col] = _clean(row.get(col))
+        out.append(item)
     return out
 
 
@@ -109,17 +120,14 @@ def write_excel(rows: list[dict], out_path: Path) -> None:
     widths = {
         "patient_id": 14,
         "status": 12,
-        "sternal_wound_infection": 18,
-        "reoperation_required": 16,
-        "information_sufficient": 14,
-        "evidence_quotes": 50,
-        "reasoning": 50,
-        "correct_swi": 12,
-        "correct_reop": 12,
+        "evidence_quotes": 40,
+        "reasoning": 40,
+        "reoperation_context": 40,
+        "rethoracotomy_context": 40,
         "notes": 30,
     }
     for col_idx, name in enumerate(COLUMNS, start=1):
-        ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(name, 16)
+        ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(name, 18)
 
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions

@@ -1,43 +1,20 @@
 {
   "task": "cardiology_smoke",
-  "description": "Smoke-Test: sternale Wundinfektion und Re-Operation (je Variable eigene LLM-Abfrage).",
+  "description": "Kardiologie Diagnoseliste: mehrere Variablen, je eigene LLM-Abfrage.",
   "language": "de",
   "fields": [
-    {
-      "name": "sternal_wound_infection",
-      "type": "enum",
-      "enum": ["Nein", "Ja", "Unbekannt"],
-      "required": true,
-      "default": "Unbekannt"
-    },
-    {
-      "name": "reoperation_required",
-      "type": "enum",
-      "enum": ["Nein", "Ja", "Unbekannt"],
-      "required": true,
-      "default": "Unbekannt"
-    },
-    {
-      "name": "information_sufficient",
-      "type": "boolean",
-      "required": true,
-      "default": false
-    },
-    {
-      "name": "reasoning",
-      "type": "string",
-      "required": true,
-      "default": ""
-    },
-    {
-      "name": "evidence_quotes",
-      "type": "array",
-      "required": true,
-      "default": []
-    }
-  ],
-  "variables": [
+    "new_permanent_pacemaker",
+    "postop_atrial_fibrillation",
+    "cerebrovascular_event",
     "sternal_wound_infection",
-    "reoperation_required"
+    "reoperation_required",
+    "reoperation_context",
+    "multi_system_failure",
+    "rethoracotomy",
+    "rethoracotomy_context",
+    "liver_cirrhosis",
+    "information_sufficient",
+    "reasoning",
+    "evidence_quotes"
   ]
 }
