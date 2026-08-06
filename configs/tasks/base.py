@@ -68,6 +68,24 @@ class EvidenceGroup:
 
 
 @dataclass(frozen=True)
+class VariableSpec:
+    """
+    One clinical variable extracted with its own LLM call.
+
+    When a parent :class:`ExtractionTask` declares ``variables``, the pipeline
+    runs one prompt/schema/keyword subset per variable and merges the results
+    into a single patient row.
+    """
+
+    name: str
+    label: str
+    prompt_name: str
+    fields: Tuple[SchemaField, ...]
+    evidence_group_names: Tuple[str, ...]
+    consistency_rules: Tuple[Dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
 class ExtractionTask:
     """A complete, pluggable extraction task specification."""
 
@@ -83,6 +101,8 @@ class ExtractionTask:
     # When True and rule evidence finds nothing actionable, still call the LLM
     # with the cleaned full report text (useful for smoke tests / sparse keywords).
     send_full_text_when_no_evidence: bool = False
+    # Optional: one LLM call per clinical variable (merged into one output row).
+    variables: Tuple[VariableSpec, ...] = ()
 
     def field_by_name(self, name: str) -> SchemaField | None:
         for f in self.fields:

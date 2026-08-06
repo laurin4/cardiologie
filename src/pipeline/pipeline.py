@@ -30,7 +30,7 @@ from configs.config import (
     SQLITE_PREDICTIONS_DB_PATH,
 )
 from configs.tasks import load_task
-from configs.tasks.base import ExtractionTask
+from configs.tasks.base import ExtractionTask, VariableSpec
 from src.extraction.rule_evidence import (
     extract_rule_evidence,
     snippets_json_for_csv,
@@ -97,6 +97,38 @@ def _one_hot_columns(task: ExtractionTask, fields: Dict[str, Any]) -> Dict[str, 
     return out
 
 
+def _variable_as_task(parent: ExtractionTask, var: VariableSpec) -> ExtractionTask:
+    """Build a mini-task for one variable (own prompt, schema, keyword subset)."""
+    allowed = set(var.evidence_group_names)
+    groups = tuple(g for g in parent.evidence_groups if g.name in allowed)
+    return ExtractionTask(
+        name=f"{parent.name}:{var.name}",
+        description=var.label or var.name,
+        fields=var.fields,
+        evidence_groups=groups,
+        section_markers=parent.section_markers,
+        negation_patterns=parent.negation_patterns,
+        prompt_name=var.prompt_name,
+        consistency_rules=var.consistency_rules,
+        language=parent.language,
+        send_full_text_when_no_evidence=parent.send_full_text_when_no_evidence,
+    )
+
+
+def _merge_quotes(*parts: Any) -> List[Any]:
+    out: List[Any] = []
+    seen = set()
+    for part in parts:
+        items = part if isinstance(part, list) else ([] if part in (None, "") else [part])
+        for item in items:
+            key = str(item).strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(item)
+    return out
+
+
 class ClinicalExtractionPipeline:
     """Runs the six-stage extraction pipeline for a given task."""
 
@@ -114,6 +146,259 @@ class ClinicalExtractionPipeline:
         clinical = [f.name for f in self.task.fields]
         # Keep audit helpers after clinical fields; one-hot last for evaluation.
         return BASE_FIELDS + clinical + one_hot_names
+
+    def _llm_once(
+        self,
+        *,
+        text: str,
+        evidence: Dict[str, Any],
+        task: ExtractionTask,
+        report_id: str,
+        report_name: str,
+        stages: List[Dict[str, Any]],
+        stage_label: str,
+    ) -> Dict[str, Any]:
+        """Run one LLM extraction (snippets or full-text fallback)."""
+        used_full_text_fallback = False
+        llm_text_used = evidence.get("llm_report_text", "")
+        if evidence["has_positive_evidence"]:
+            result = extract_entities(
+                evidence, task, record_id=report_id, report_name=report_name
+            )
+            input_mode = "evidence_snippets"
+        elif task.send_full_text_when_no_evidence and text.strip():
+            used_full_text_fallback = True
+            from src.extraction.text_budget import fit_text_for_llm
+
+            capped_text, was_truncated = fit_text_for_llm(text, task)
+            if (task.language or "en").lower().startswith("de"):
+                prefix = (
+                    "Keine regelbasierten Evidenz-Snippets gefunden. Es folgt die "
+                    "bereinigte Diagnoseliste / der Berichtstext"
+                    + (" (wegen Länge gekürzt)" if was_truncated else "")
+                    + ":\n\n"
+                )
+            else:
+                prefix = (
+                    "No rule-based evidence snippets matched. Cleaned Diagnoseliste "
+                    "/ report text follows"
+                    + (" (truncated for length)" if was_truncated else "")
+                    + ":\n\n"
+                )
+            llm_text_used = prefix + capped_text
+            result = extract_entities(
+                evidence,
+                task,
+                record_id=report_id,
+                report_name=report_name,
+                llm_text_override=llm_text_used,
+            )
+            input_mode = (
+                "full_text_fallback_truncated" if was_truncated else "full_text_fallback"
+            )
+            result = dict(result)
+            result["full_text_truncated"] = was_truncated
+            result["full_text_chars_original"] = len(text)
+            result["full_text_chars_sent"] = len(capped_text)
+        else:
+            stages.append(
+                {
+                    "stage": "llm_extraction",
+                    "variable": stage_label,
+                    "action": "skipped",
+                    "llm_called": False,
+                    "reason": "no_positive_rule_evidence",
+                }
+            )
+            return {
+                "fields": {f.name: f.default for f in task.fields},
+                "schema_errors": [],
+                "llm_called": False,
+                "reasoning": "",
+                "evidence_quotes": [],
+                "raw_output": "",
+                "llm_audit": {},
+                "llm_text_used": llm_text_used,
+                "used_full_text_fallback": False,
+                "status": STATUS_SKIPPED,
+                "evidence": evidence,
+            }
+
+        schema_errors = result["schema_errors"]
+        status = (
+            STATUS_FAILED
+            if any(str(e).startswith("llm_extraction_failed") for e in schema_errors)
+            else STATUS_EXTRACTED
+        )
+        llm_audit = {
+            "variable": stage_label,
+            "system_prompt": result.get("system_prompt", ""),
+            "user_prompt": result.get("user_prompt", ""),
+            "raw_output": result.get("raw_output", ""),
+            "debug_path": result.get("debug_path"),
+        }
+        if used_full_text_fallback:
+            llm_audit["full_text_truncated"] = result.get("full_text_truncated")
+            llm_audit["full_text_chars_original"] = result.get("full_text_chars_original")
+            llm_audit["full_text_chars_sent"] = result.get("full_text_chars_sent")
+
+        stage_entry: Dict[str, Any] = {
+            "stage": "llm_extraction",
+            "variable": stage_label,
+            "action": "extract_entities",
+            "llm_called": True,
+            "input_mode": input_mode,
+            "schema_errors": schema_errors,
+            "reasoning": result.get("reasoning", ""),
+            "evidence_quotes": result.get("evidence_quotes", []),
+        }
+        if used_full_text_fallback:
+            stage_entry["full_text_truncated"] = result.get("full_text_truncated")
+            stage_entry["full_text_chars_original"] = result.get("full_text_chars_original")
+            stage_entry["full_text_chars_sent"] = result.get("full_text_chars_sent")
+        stages.append(stage_entry)
+
+        return {
+            "fields": result["fields"],
+            "schema_errors": schema_errors,
+            "llm_called": True,
+            "reasoning": str(result.get("reasoning", "") or ""),
+            "evidence_quotes": result.get("evidence_quotes", []),
+            "raw_output": result.get("raw_output", ""),
+            "llm_audit": llm_audit,
+            "llm_text_used": llm_text_used,
+            "used_full_text_fallback": used_full_text_fallback,
+            "status": status,
+            "evidence": evidence,
+        }
+
+    def _run_variable_extractions(
+        self,
+        *,
+        text: str,
+        report_id: str,
+        report_name: str,
+        stages: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """One LLM call per VariableSpec; merge into a single field dict."""
+        merged = {f.name: f.default for f in self.task.fields}
+        schema_errors: List[str] = []
+        reason_parts: List[str] = []
+        quotes: List[Any] = []
+        llm_audits: List[Dict[str, Any]] = []
+        evidence_snippets: List[Dict[str, Any]] = []
+        keyword_hits = 0
+        has_positive = False
+        has_negation = False
+        any_llm = False
+        any_failed = False
+        any_extracted = False
+        used_full_text_fallback = False
+        llm_text_len = 0
+        evidence_flags: Dict[str, bool] = {}
+        reduction_methods: List[str] = []
+        original_len = len(text)
+
+        for var in self.task.variables:
+            mini = _variable_as_task(self.task, var)
+            evidence = extract_rule_evidence(text, mini)
+            stages.append(
+                {
+                    "stage": "rule_evidence",
+                    "variable": var.name,
+                    "action": "extract_rule_evidence",
+                    "reduction_method": evidence["reduction_method"],
+                    "keyword_hits_count": evidence["keyword_hits_count"],
+                    "has_positive_evidence": evidence["has_positive_evidence"],
+                    "has_negation": evidence["has_negation"],
+                    "evidence_flags": evidence["evidence_flags"],
+                    "snippet_count": len(evidence["evidence_snippets"]),
+                    "llm_input_chars": evidence["llm_report_text_length"],
+                }
+            )
+            keyword_hits += int(evidence["keyword_hits_count"] or 0)
+            has_positive = has_positive or bool(evidence["has_positive_evidence"])
+            has_negation = has_negation or bool(evidence["has_negation"])
+            evidence_snippets.extend(evidence["evidence_snippets"] or [])
+            evidence_flags.update(evidence.get("evidence_flags") or {})
+            reduction_methods.append(f"{var.name}:{evidence['reduction_method']}")
+            original_len = evidence["original_report_text_length"]
+
+            one = self._llm_once(
+                text=text,
+                evidence=evidence,
+                task=mini,
+                report_id=report_id,
+                report_name=report_name,
+                stages=stages,
+                stage_label=var.name,
+            )
+            if one["llm_called"]:
+                any_llm = True
+                llm_text_len = max(llm_text_len, len(str(one.get("llm_text_used") or "")))
+            used_full_text_fallback = used_full_text_fallback or bool(
+                one.get("used_full_text_fallback")
+            )
+            if one["status"] == STATUS_FAILED:
+                any_failed = True
+            if one["status"] == STATUS_EXTRACTED:
+                any_extracted = True
+            schema_errors.extend(
+                f"{var.name}: {err}" for err in (one.get("schema_errors") or [])
+            )
+            if one.get("llm_audit"):
+                llm_audits.append(one["llm_audit"])
+
+            for f in var.fields:
+                if f.name in ("reasoning", "evidence_quotes", "information_sufficient"):
+                    continue
+                merged[f.name] = one["fields"].get(f.name, f.default)
+
+            var_reason = str(one.get("reasoning") or one["fields"].get("reasoning") or "").strip()
+            if var_reason:
+                reason_parts.append(f"### {var.label}\n{var_reason}")
+            quotes = _merge_quotes(quotes, one.get("evidence_quotes"))
+
+            # Per-variable sufficiency: overall True only if every called variable was sufficient.
+            # Store last; recomputed below.
+            merged[f"_suff_{var.name}"] = bool(one["fields"].get("information_sufficient"))
+
+        suff_keys = [k for k in list(merged.keys()) if k.startswith("_suff_")]
+        if suff_keys:
+            merged["information_sufficient"] = all(bool(merged.pop(k)) for k in suff_keys)
+        else:
+            merged["information_sufficient"] = False
+        merged["reasoning"] = "\n\n".join(reason_parts)
+        merged["evidence_quotes"] = quotes
+
+        if any_failed:
+            status = STATUS_FAILED
+        elif any_extracted or any_llm:
+            status = STATUS_EXTRACTED
+        else:
+            status = STATUS_SKIPPED
+
+        return {
+            "fields": merged,
+            "schema_errors": schema_errors,
+            "llm_called": any_llm,
+            "reasoning": merged["reasoning"],
+            "evidence_quotes": quotes,
+            "llm_audit": {"per_variable": llm_audits},
+            "llm_text_used_len": llm_text_len,
+            "used_full_text_fallback": used_full_text_fallback,
+            "status": status,
+            "evidence_summary": {
+                "reduction_method": " | ".join(reduction_methods),
+                "keyword_hits_count": keyword_hits,
+                "has_positive_evidence": has_positive,
+                "has_negation": has_negation,
+                "evidence_flags": evidence_flags,
+                "snippets": evidence_snippets,
+                "original_report_text_length": original_len,
+                "llm_report_text_length": llm_text_len,
+            },
+        }
 
     def run_report(self, report: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Run all stages for one report. Returns ``(csv_row, structured_record)``."""
@@ -135,140 +420,74 @@ class ClinicalExtractionPipeline:
             }
         )
 
-        # --- Stage 2: rule evidence ---
-        evidence = extract_rule_evidence(text, self.task)
-        stages.append(
-            {
-                "stage": "rule_evidence",
-                "action": "extract_rule_evidence",
-                "reduction_method": evidence["reduction_method"],
-                "keyword_hits_count": evidence["keyword_hits_count"],
-                "has_positive_evidence": evidence["has_positive_evidence"],
-                "has_negation": evidence["has_negation"],
-                "evidence_flags": evidence["evidence_flags"],
-                "snippet_count": len(evidence["evidence_snippets"]),
-                "llm_input_chars": evidence["llm_report_text_length"],
-            }
-        )
-
         default_fields = {f.name: f.default for f in self.task.fields}
-        schema_errors: List[str] = []
-        llm_called = False
-        reasoning = ""
-        evidence_quotes: Any = []
-        raw_output = ""
-        llm_audit: Dict[str, Any] = {}
-        llm_text_used = evidence.get("llm_report_text", "")
-        used_full_text_fallback = False
 
-        # --- Stages 3-4: LLM extraction + schema validation ---
-        if evidence["has_positive_evidence"]:
-            result = extract_entities(
-                evidence, self.task, record_id=report_id, report_name=report_name
-            )
-            fields = result["fields"]
-            schema_errors = result["schema_errors"]
-            llm_called = result["llm_called"]
-            reasoning = str(result.get("reasoning", "") or "")
-            evidence_quotes = result.get("evidence_quotes", [])
-            raw_output = result.get("raw_output", "")
-            llm_audit = {
-                "system_prompt": result.get("system_prompt", ""),
-                "user_prompt": result.get("user_prompt", ""),
-                "raw_output": raw_output,
-                "debug_path": result.get("debug_path"),
-            }
-            status = (
-                STATUS_FAILED
-                if any(str(e).startswith("llm_extraction_failed") for e in schema_errors)
-                else STATUS_EXTRACTED
-            )
-            stages.append(
-                {
-                    "stage": "llm_extraction",
-                    "action": "extract_entities",
-                    "llm_called": True,
-                    "input_mode": "evidence_snippets",
-                    "schema_errors": schema_errors,
-                    "reasoning": reasoning,
-                    "evidence_quotes": evidence_quotes,
-                }
-            )
-        elif self.task.send_full_text_when_no_evidence and text.strip():
-            used_full_text_fallback = True
-            from src.extraction.text_budget import fit_text_for_llm
-
-            capped_text, was_truncated = fit_text_for_llm(text, self.task)
-            if (self.task.language or "en").lower().startswith("de"):
-                prefix = (
-                    "Keine regelbasierten Evidenz-Snippets gefunden. Es folgt die "
-                    "bereinigte Diagnoseliste / der Berichtstext"
-                    + (" (wegen Länge gekürzt)" if was_truncated else "")
-                    + ":\n\n"
-                )
-            else:
-                prefix = (
-                    "No rule-based evidence snippets matched. Cleaned Diagnoseliste "
-                    "/ report text follows"
-                    + (" (truncated for length)" if was_truncated else "")
-                    + ":\n\n"
-                )
-            llm_text_used = prefix + capped_text
-            result = extract_entities(
-                evidence,
-                self.task,
-                record_id=report_id,
+        if self.task.variables:
+            multi = self._run_variable_extractions(
+                text=text,
+                report_id=report_id,
                 report_name=report_name,
-                llm_text_override=llm_text_used,
+                stages=stages,
             )
-            fields = result["fields"]
-            schema_errors = result["schema_errors"]
-            llm_called = result["llm_called"]
-            reasoning = str(result.get("reasoning", "") or "")
-            evidence_quotes = result.get("evidence_quotes", [])
-            raw_output = result.get("raw_output", "")
-            llm_audit = {
-                "system_prompt": result.get("system_prompt", ""),
-                "user_prompt": result.get("user_prompt", ""),
-                "raw_output": raw_output,
-                "debug_path": result.get("debug_path"),
-                "full_text_truncated": was_truncated,
-                "full_text_chars_original": len(text),
-                "full_text_chars_sent": len(capped_text),
+            fields = multi["fields"]
+            schema_errors = multi["schema_errors"]
+            llm_called = multi["llm_called"]
+            reasoning = multi["reasoning"]
+            evidence_quotes = multi["evidence_quotes"]
+            llm_audit = multi["llm_audit"]
+            used_full_text_fallback = multi["used_full_text_fallback"]
+            status = multi["status"]
+            ev = multi["evidence_summary"]
+            evidence = {
+                "reduction_method": ev["reduction_method"],
+                "keyword_hits_count": ev["keyword_hits_count"],
+                "has_positive_evidence": ev["has_positive_evidence"],
+                "has_negation": ev["has_negation"],
+                "evidence_flags": ev["evidence_flags"],
+                "evidence_snippets": ev["snippets"],
+                "original_report_text_length": ev["original_report_text_length"],
+                "llm_report_text_length": ev["llm_report_text_length"],
             }
-            status = (
-                STATUS_FAILED
-                if any(str(e).startswith("llm_extraction_failed") for e in schema_errors)
-                else STATUS_EXTRACTED
-            )
-            stages.append(
-                {
-                    "stage": "llm_extraction",
-                    "action": "extract_entities",
-                    "llm_called": True,
-                    "input_mode": (
-                        "full_text_fallback_truncated"
-                        if was_truncated
-                        else "full_text_fallback"
-                    ),
-                    "schema_errors": schema_errors,
-                    "reasoning": reasoning,
-                    "evidence_quotes": evidence_quotes,
-                    "full_text_truncated": was_truncated,
-                    "full_text_chars_original": len(text),
-                    "full_text_chars_sent": len(capped_text),
-                }
-            )
+            llm_text_used = ""
+            llm_text_len_for_row = ev["llm_report_text_length"]
         else:
-            status = STATUS_SKIPPED
-            fields = dict(default_fields)
+            # --- Stage 2: rule evidence (single-call tasks) ---
+            evidence = extract_rule_evidence(text, self.task)
             stages.append(
                 {
-                    "stage": "llm_extraction",
-                    "action": "skipped",
-                    "llm_called": False,
-                    "reason": "no_positive_rule_evidence",
+                    "stage": "rule_evidence",
+                    "action": "extract_rule_evidence",
+                    "reduction_method": evidence["reduction_method"],
+                    "keyword_hits_count": evidence["keyword_hits_count"],
+                    "has_positive_evidence": evidence["has_positive_evidence"],
+                    "has_negation": evidence["has_negation"],
+                    "evidence_flags": evidence["evidence_flags"],
+                    "snippet_count": len(evidence["evidence_snippets"]),
+                    "llm_input_chars": evidence["llm_report_text_length"],
                 }
+            )
+            one = self._llm_once(
+                text=text,
+                evidence=evidence,
+                task=self.task,
+                report_id=report_id,
+                report_name=report_name,
+                stages=stages,
+                stage_label=self.task.name,
+            )
+            fields = one["fields"] if one["llm_called"] or one["status"] != STATUS_SKIPPED else dict(default_fields)
+            if one["status"] == STATUS_SKIPPED and not one["llm_called"]:
+                fields = dict(default_fields)
+            schema_errors = one["schema_errors"]
+            llm_called = one["llm_called"]
+            reasoning = one["reasoning"]
+            evidence_quotes = one["evidence_quotes"]
+            llm_audit = one["llm_audit"]
+            used_full_text_fallback = one["used_full_text_fallback"]
+            status = one["status"]
+            llm_text_used = one.get("llm_text_used", "")
+            llm_text_len_for_row = (
+                len(llm_text_used) if llm_called else evidence["llm_report_text_length"]
             )
 
         stages.append(
@@ -310,7 +529,7 @@ class ClinicalExtractionPipeline:
             "llm_called": _bool_csv(llm_called),
             "reduction_method": evidence["reduction_method"],
             "original_report_text_length": evidence["original_report_text_length"],
-            "llm_report_text_length": len(llm_text_used) if llm_called else evidence["llm_report_text_length"],
+            "llm_report_text_length": llm_text_len_for_row,
             "keyword_hits_count": evidence["keyword_hits_count"],
             "has_positive_evidence": _bool_csv(evidence["has_positive_evidence"]),
             "has_negation": _bool_csv(evidence["has_negation"]),
@@ -345,6 +564,7 @@ class ClinicalExtractionPipeline:
                 "stages": stages,
                 "llm": llm_audit,
                 "used_full_text_fallback": used_full_text_fallback,
+                "per_variable_llm": bool(self.task.variables),
                 "input_metadata": {
                     k: report.get(k)
                     for k in ("patient_id", "n_diagnosis_entries", "input_kind")

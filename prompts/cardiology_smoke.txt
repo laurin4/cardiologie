@@ -1,37 +1,7 @@
 Du bist ein klinisches Informations-Extraktionssystem für herzchirurgische Dokumentation.
 
-Du erhältst Evidenz aus einer patientenbezogenen Diagnoseliste (überwiegend Deutsch).
-Die Evidenz kann als regelbasierte, gelabelte Snippets oder als vollständige Diagnoseliste vorliegen.
+Hinweis: Der Cardiology-Smoke-Task nutzt getrennte Prompts pro Variable:
+- prompts/cardiology_smoke_swi.txt
+- prompts/cardiology_smoke_reop.txt
 
-Für diesen SMOKE-TEST prüfst du, ob der Text genug Information enthält, um die
-folgenden zwei Variablen zuzuweisen – und weist sie zu, wenn möglich:
-
-1) sternal_wound_infection (sternale Wundinfektion)
-   - Keine: keine sternale Wundinfektion dokumentiert
-   - Oberflächlich: oberflächliche sternale Wundinfektion
-   - Tief: tiefe sternale Wundinfektion / Mediastinitis / tiefe sternale Beteiligung
-
-2) reoperation_required (Re-Operation erforderlich)
-   - Nein: explizit keine Re-Operation / keine Revision
-   - Ja: jede Re-Operation / Revision / Re-Thorakotomie / erneuter Eingriff dokumentiert
-   - Unbekannt: anhand des Textes nicht sicher beurteilbar
-
-Zusätzlich setzen:
-- information_sufficient: true nur wenn die Diagnoseliste ausreichend Signal liefert,
-  um die klinischen Felder mit angemessener Sicherheit zu setzen; false wenn der Text
-  dazu schweigt oder zu unklar ist.
-- reasoning: klare, schrittweise Begründung auf Deutsch (was gesehen wurde und warum
-  so entschieden wurde). Ein Reviewer muss die Entscheidung ohne erneutes Lesen der
-  gesamten Liste nachvollziehen können.
-- evidence_quotes: kurze wörtliche Zitate aus der Diagnoseliste, die die Entscheidung
-  stützen (leere Liste, wenn information_sufficient=false).
-
-Regeln:
-- Keine Befunde erfinden, die im Text nicht belegt sind.
-- Negationen zählen (z. B. „kein Wundinfekt“, „keine Revision“).
-- Wenn nur eine der beiden Variablen belegt ist: information_sufficient entsprechend
-  setzen und für die unbelegte Variable vorsichtig „Unbekannt“ bzw. „Keine“ verwenden.
-- Bei klarer Mediastinitis oder tiefer sternaler Infektion „Tief“ statt „Oberflächlich“.
-- Ausgabe AUSSCHLIESSLICH als gültiges JSON-Objekt (kein Markdown ausserhalb des JSON).
-- Alle Freitextfelder (insbesondere reasoning) auf Deutsch formulieren.
-- Enum-Werte exakt wie oben angegeben (deutsche Labels).
+Diese Datei bleibt nur als Verweis und wird vom Pipeline-Lauf nicht mehr verwendet.

@@ -33,7 +33,7 @@ def test_write_csv(tmp_path: Path):
             {
                 "report_id": "1",
                 "status": "extracted",
-                "sternal_wound_infection": "Keine",
+                "sternal_wound_infection": "Nein",
                 "reoperation_required": "Nein",
                 "information_sufficient": "True",
                 "evidence_quotes": "[]",
@@ -44,7 +44,7 @@ def test_write_csv(tmp_path: Path):
     write_csv(rows, out)
     text = out.read_text(encoding="utf-8-sig")
     assert "patient_id;status;" in text
-    assert "1;extracted;Keine;Nein" in text
+    assert "1;extracted;Nein;Nein" in text
 
 
 def test_write_excel(tmp_path: Path):
@@ -54,7 +54,7 @@ def test_write_excel(tmp_path: Path):
             {
                 "report_id": "1",
                 "status": "extracted",
-                "sternal_wound_infection": "Keine",
+                "sternal_wound_infection": "Nein",
                 "reoperation_required": "Nein",
                 "information_sufficient": "True",
                 "evidence_quotes": "[]",

@@ -15,12 +15,14 @@ from configs.tasks.base import (  # re-export for convenience
     EvidenceGroup,
     ExtractionTask,
     SchemaField,
+    VariableSpec,
 )
 
 __all__ = [
     "EvidenceGroup",
     "ExtractionTask",
     "SchemaField",
+    "VariableSpec",
     "load_task",
     "available_tasks",
 ]

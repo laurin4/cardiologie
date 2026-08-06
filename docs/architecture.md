@@ -31,6 +31,10 @@ flowchart TD
 
 If the rule layer finds no positive/context evidence, the LLM is skipped **unless** the task sets `send_full_text_when_no_evidence=True` (used by the cardiology smoke task).
 
+Tasks may declare ``variables`` (:class:`~configs.tasks.base.VariableSpec`). When set,
+the pipeline runs **one LLM call per variable** (own prompt + keyword subset) and
+merges results into a single patient row.
+
 ## Audit trail (interpretability)
 
 Every structured JSONL record includes:

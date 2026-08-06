@@ -1,14 +1,14 @@
 {
   "task": "cardiology_smoke",
-  "description": "Smoke-Test für sternale Wundinfektion und Re-Operation erforderlich.",
+  "description": "Smoke-Test: sternale Wundinfektion und Re-Operation (je Variable eigene LLM-Abfrage).",
   "language": "de",
   "fields": [
     {
       "name": "sternal_wound_infection",
       "type": "enum",
-      "enum": ["Keine", "Oberflächlich", "Tief"],
+      "enum": ["Nein", "Ja", "Unbekannt"],
       "required": true,
-      "default": "Keine"
+      "default": "Unbekannt"
     },
     {
       "name": "reoperation_required",
@@ -35,5 +35,9 @@
       "required": true,
       "default": []
     }
+  ],
+  "variables": [
+    "sternal_wound_infection",
+    "reoperation_required"
   ]
 }

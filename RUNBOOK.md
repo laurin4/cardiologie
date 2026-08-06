@@ -99,8 +99,12 @@ If you omit `--reports` and a `HER_Diagnose*.csv` is in `data/raw/`, that file i
 
 Interpretability artifacts:
 - CSV columns `reasoning`, `evidence_quotes`, `stage_path`, plus one-hot `field__value` columns
-- JSONL `audit.stages` (preprocessing → rule_evidence → llm_extraction → schema_validation → guardrails)
-- JSONL `audit.llm` (system/user prompts + raw model output)
+- JSONL `audit.stages` (preprocessing → rule_evidence → llm_extraction → …; **per variable** for cardiology_smoke)
+- JSONL `audit.llm.per_variable` (system/user prompts + raw model output for each variable)
+
+Cardiology smoke labels are binary presence: `Nein | Ja | Unbekannt` (no Superficial/Deep yet).
+Each variable uses its own prompt under `prompts/cardiology_smoke_swi.txt` /
+`prompts/cardiology_smoke_reop.txt` and its own keyword subset.
 
 ### Retry only failed rows (empty LLM / timeout)
 
