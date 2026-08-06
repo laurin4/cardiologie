@@ -6,12 +6,12 @@ Die Evidenz kann als regelbasierte, gelabelte Snippets oder als vollständige Di
 Für diesen SMOKE-TEST prüfst du, ob der Text genug Information enthält, um die
 folgenden zwei Variablen zuzuweisen – und weist sie zu, wenn möglich:
 
-1) sternal_wound_infection
+1) sternal_wound_infection (sternale Wundinfektion)
    - Keine: keine sternale Wundinfektion dokumentiert
    - Oberflächlich: oberflächliche sternale Wundinfektion
    - Tief: tiefe sternale Wundinfektion / Mediastinitis / tiefe sternale Beteiligung
 
-2) reoperation_required
+2) reoperation_required (Re-Operation erforderlich)
    - Nein: explizit keine Re-Operation / keine Revision
    - Ja: jede Re-Operation / Revision / Re-Thorakotomie / erneuter Eingriff dokumentiert
    - Unbekannt: anhand des Textes nicht sicher beurteilbar

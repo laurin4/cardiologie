@@ -35,6 +35,40 @@ def test_prompts_and_schema_block_are_german():
     assert "None" not in prompt or "Keine" in prompt
     assert "Oberflächlich" in prompt
     assert "Unbekannt" in prompt
+    assert "Standard:" in prompt
+
+
+def test_cardiology_keywords_are_german_oriented():
+    """Rule phrases must not rely on English clinical wording for matching."""
+    banned = {
+        "sternal wound infection",
+        "sternal wound",
+        "sternal infection",
+        "deep sternal",
+        "superficial sternal",
+        "wound infection",
+        "revision surgery",
+        "surgical revision",
+        "return to theatre",
+        "re-op",
+        "no wound infection",
+        "no reoperation",
+        "no re-operation",
+        "dehiscence",
+        "open chest",
+        "open-chest",
+    }
+    task = load_task("cardiology_smoke")
+    phrases = {p.lower() for g in task.evidence_groups for p in g.phrases}
+    assert not (phrases & banned)
+    assert "sternale wundinfektion" in phrases
+    assert "revisionseingriff" in phrases or "wundrevision" in phrases
+    assert {g.name for g in task.evidence_groups} == {
+        "sternale_wundinfektion",
+        "reeingriff",
+        "wund_kontext",
+        "verneinung",
+    }
 
 
 def test_pipeline_audit_trail_and_one_hot(monkeypatch):

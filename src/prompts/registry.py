@@ -36,7 +36,7 @@ def render_schema_block(task: ExtractionTask) -> str:
         )
         required_label = "pflicht"
         one_of_label = "eines von"
-        default_label = "default"
+        default_label = "Standard"
     else:
         lines = ["Return ONLY a JSON object with exactly these fields:"]
         footer = "Do not add extra keys or commentary. Output must be valid JSON."

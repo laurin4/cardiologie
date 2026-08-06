@@ -290,14 +290,38 @@ def _sort_snippets(
     return sorted(snippets, key=key)
 
 
-def _build_llm_report_text(snippets: List[Dict[str, Any]], max_total_chars: int) -> str:
-    header = "Report evidence snippets:"
+_ROLE_LABEL_DE = {
+    "positive": "positiv",
+    "context": "kontext",
+    "negation": "verneinung",
+}
+
+
+def _snippet_label_line(snippet: Dict[str, Any], *, language: str) -> str:
+    role = str(snippet.get("role") or "")
+    if language.startswith("de"):
+        role_label = _ROLE_LABEL_DE.get(role, role)
+        return (
+            f"[Abschnitt={snippet.get('section')} | Gruppe={snippet.get('evidence_group')} | "
+            f"Rolle={role_label} | Priorität={snippet.get('priority')}]"
+        )
+    return (
+        f"[section={snippet.get('section')} | group={snippet.get('evidence_group')} | "
+        f"role={role} | priority={snippet.get('priority')}]"
+    )
+
+
+def _build_llm_report_text(
+    snippets: List[Dict[str, Any]],
+    max_total_chars: int,
+    *,
+    language: str = "en",
+) -> str:
+    lang = (language or "en").lower()
+    header = "Bericht-Evidenz-Snippets:" if lang.startswith("de") else "Report evidence snippets:"
     lines = [header, ""]
     for s in snippets:
-        lines.append(
-            f"[section={s.get('section')} | group={s.get('evidence_group')} | "
-            f"role={s.get('role')} | priority={s.get('priority')}]"
-        )
+        lines.append(_snippet_label_line(s, language=lang))
         lines.append(str(s.get("text") or ""))
         lines.append("")
     body = "\n".join(lines)
@@ -306,8 +330,7 @@ def _build_llm_report_text(snippets: List[Dict[str, Any]], max_total_chars: int)
     keep = [header, ""]
     for s in snippets:
         block = (
-            f"[section={s.get('section')} | group={s.get('evidence_group')} | "
-            f"role={s.get('role')} | priority={s.get('priority')}]\n"
+            f"{_snippet_label_line(s, language=lang)}\n"
             f"{str(s.get('text') or '')}\n"
         )
         if sum(len(x) + 1 for x in keep) + len(block) > max_total_chars:
@@ -424,7 +447,15 @@ def extract_rule_evidence(report_text: str, task: ExtractionTask) -> Dict[str, A
     has_positive = llm_should_receive_evidence(snippets)
 
     method = METHOD_STRUCTURED if has_positive else METHOD_NO_EVIDENCE
-    llm_body = _build_llm_report_text(snippets, _max_llm_chars()) if has_positive else ""
+    llm_body = (
+        _build_llm_report_text(
+            snippets,
+            _max_llm_chars(),
+            language=task.language or "en",
+        )
+        if has_positive
+        else ""
+    )
 
     return {
         "original_report_text_length": original_len,
