@@ -49,8 +49,12 @@ from src.preprocessing.report_loader import (
 LOGGER = logging.getLogger(__name__)
 
 STATUS_EXTRACTED = "extracted"
+STATUS_PARTIAL = "partial"
 STATUS_SKIPPED = "skipped_no_evidence"
 STATUS_FAILED = "failed"
+
+# Rows that should be re-run with --retry-failed.
+_RETRYABLE_STATUSES = frozenset({STATUS_FAILED, STATUS_PARTIAL})
 
 BASE_FIELDS = [
     "report_id",
@@ -258,6 +262,7 @@ class ClinicalExtractionPipeline:
             stage_entry["full_text_chars_sent"] = result.get("full_text_chars_sent")
         stages.append(stage_entry)
 
+        llm_audit["attempts"] = result.get("attempts", 1)
         return {
             "fields": result["fields"],
             "schema_errors": schema_errors,
@@ -270,6 +275,7 @@ class ClinicalExtractionPipeline:
             "used_full_text_fallback": used_full_text_fallback,
             "status": status,
             "evidence": evidence,
+            "attempts": result.get("attempts", 1),
         }
 
     def _run_variable_extractions(
@@ -291,8 +297,8 @@ class ClinicalExtractionPipeline:
         has_positive = False
         has_negation = False
         any_llm = False
-        any_failed = False
-        any_extracted = False
+        n_var_failed = 0
+        n_var_extracted = 0
         used_full_text_fallback = False
         llm_text_len = 0
         evidence_flags: Dict[str, bool] = {}
@@ -340,9 +346,9 @@ class ClinicalExtractionPipeline:
                 one.get("used_full_text_fallback")
             )
             if one["status"] == STATUS_FAILED:
-                any_failed = True
-            if one["status"] == STATUS_EXTRACTED:
-                any_extracted = True
+                n_var_failed += 1
+            elif one["status"] == STATUS_EXTRACTED:
+                n_var_extracted += 1
             schema_errors.extend(
                 f"{var.name}: {err}" for err in (one.get("schema_errors") or [])
             )
@@ -371,9 +377,12 @@ class ClinicalExtractionPipeline:
         merged["reasoning"] = "\n\n".join(reason_parts)
         merged["evidence_quotes"] = quotes
 
-        if any_failed:
+        # Partial success: keep usable labels; only mark failed if every var call failed.
+        if n_var_extracted > 0 and n_var_failed > 0:
+            status = STATUS_PARTIAL
+        elif n_var_failed > 0 and n_var_extracted == 0:
             status = STATUS_FAILED
-        elif any_extracted or any_llm:
+        elif n_var_extracted > 0 or any_llm:
             status = STATUS_EXTRACTED
         else:
             status = STATUS_SKIPPED
@@ -606,14 +615,15 @@ def _apply_llm_timeout(seconds: Optional[int]) -> None:
     print(f"LLM_TIMEOUT set to {seconds}s for this run")
 
 
-def _count_statuses(rows: Sequence[Dict[str, Any]]) -> Tuple[int, int, int]:
-    n_extracted = n_skipped = n_failed = 0
+def _count_statuses(rows: Sequence[Dict[str, Any]]) -> Tuple[int, int, int, int]:
+    n_extracted = n_partial = n_skipped = n_failed = 0
     for row in rows:
         status = str(row.get("status", ""))
         n_extracted += status == STATUS_EXTRACTED
+        n_partial += status == STATUS_PARTIAL
         n_skipped += status == STATUS_SKIPPED
         n_failed += status == STATUS_FAILED
-    return n_extracted, n_skipped, n_failed
+    return n_extracted, n_partial, n_skipped, n_failed
 
 
 def run(
@@ -657,43 +667,45 @@ def run(
             )
         all_existing = records_io.load_checkpoint_rows(csv_path)
         all_structured = records_io.load_jsonl(jsonl_path)
-        failed_rows = [
+        retry_rows = [
             row
             for row in all_existing
-            if str(row.get("status", "")).strip().lower() == "failed"
+            if str(row.get("status", "")).strip().lower() in _RETRYABLE_STATUSES
         ]
-        n_failed_existing = len(failed_rows)
-        if n_failed_existing == 0:
-            print(f"No failed rows in {csv_path}; nothing to retry.")
+        n_retry_existing = len(retry_rows)
+        if n_retry_existing == 0:
+            print(f"No failed/partial rows in {csv_path}; nothing to retry.")
             return csv_path
 
-        # Keep only non-failed rows; re-run ONLY patients that were failed in the CSV
+        # Keep successful rows; re-run ONLY failed/partial patients from the CSV
         # (never the whole remaining dataset).
         existing_rows = [
             row
             for row in all_existing
-            if str(row.get("status", "")).strip().lower() != "failed"
+            if str(row.get("status", "")).strip().lower() not in _RETRYABLE_STATUSES
         ]
         existing_structured = [
             rec
             for rec in all_structured
-            if str(rec.get("status", "")).strip().lower() != "failed"
+            if str(rec.get("status", "")).strip().lower() not in _RETRYABLE_STATUSES
         ]
-        failed_key_set = records_io.failed_keys(all_existing)
-        failed_report_ids = {
+        retry_key_set = {
+            records_io.resume_key(row) for row in retry_rows
+        }
+        retry_report_ids = {
             str(row.get("report_id", "")).strip()
-            for row in failed_rows
+            for row in retry_rows
             if str(row.get("report_id", "")).strip()
         }
         todo = [
             r
             for r in reports
-            if records_io.resume_key(r) in failed_key_set
-            or str(r.get(REPORT_ID_KEY, "")).strip() in failed_report_ids
+            if records_io.resume_key(r) in retry_key_set
+            or str(r.get(REPORT_ID_KEY, "")).strip() in retry_report_ids
         ]
-        print(f"=== {task.name}: RETRY failed rows ===")
+        print(f"=== {task.name}: RETRY failed/partial rows ===")
         print(
-            f"failed_in_csv={n_failed_existing} kept_ok={len(existing_rows)} "
+            f"retryable_in_csv={n_retry_existing} kept_ok={len(existing_rows)} "
             f"retrying={len(todo)}"
         )
         if not todo:
@@ -761,9 +773,12 @@ def run(
         except OSError:
             LOGGER.warning("Could not remove checkpoint: %s", checkpoint_path)
 
-    n_extracted, n_skipped, n_failed = _count_statuses(rows)
+    n_extracted, n_partial, n_skipped, n_failed = _count_statuses(rows)
     print("\n=== Run summary ===")
-    print(f"total={len(rows)} extracted={n_extracted} skipped={n_skipped} failed={n_failed}")
+    print(
+        f"total={len(rows)} extracted={n_extracted} partial={n_partial} "
+        f"skipped={n_skipped} failed={n_failed}"
+    )
     print(f"CSV:   {csv_path}")
     print(f"JSONL: {jsonl_path}  (includes full stage audit + LLM reasoning)")
 
@@ -805,7 +820,7 @@ def main() -> None:
     parser.add_argument(
         "--retry-failed",
         action="store_true",
-        help="Re-run only rows with status=failed from the existing results CSV and merge.",
+        help="Re-run only rows with status=failed or partial from the existing results CSV and merge.",
     )
     parser.add_argument(
         "--llm-timeout",

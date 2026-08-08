@@ -41,6 +41,9 @@ LLM_DISABLE_THINK = _parse_bool_env("LLM_DISABLE_THINK", False)
 _DEFAULT_TIMEOUT = "300" if LLM_PROVIDER == "usz_api" else "120"
 TIMEOUT = int(os.getenv("LLM_TIMEOUT", os.getenv("OLLAMA_TIMEOUT", _DEFAULT_TIMEOUT)))
 
+# Extra attempts after a failed LLM call / non-JSON response (0 = no retries).
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
+
 # Ollama-only context window (chat options)
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 

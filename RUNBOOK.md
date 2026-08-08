@@ -21,6 +21,7 @@ export LLM_TEMPERATURE=0
 export LLM_TOP_P=1
 export LLM_MAX_TOKENS=1000
 export LLM_TIMEOUT=300
+export LLM_MAX_RETRIES=2
 ```
 
 Optional Ollama comparison:
@@ -128,8 +129,12 @@ python3 -m src.pipeline.pipeline \
   --llm-timeout 300
 ```
 
-Only patients with ``status=failed`` in the existing results CSV are re-run
-(not the rest of the dataset). Successful rows stay untouched.
+Only patients with ``status=failed`` or ``partial`` in the existing results CSV
+are re-run (not the rest of the dataset). Successful rows stay untouched.
+
+Technical robustness: empty/timeout/non-JSON LLM answers are retried
+(``LLM_MAX_RETRIES``, default 2). Mixed success across variables → ``partial``,
+not whole-row ``failed``.
 
 Large Diagnoselisten (> ``EVIDENCE_MAX_FULL_TEXT_CHARS``, default 12000) are
 automatically shortened on full-text fallback only: entry headers + keyword

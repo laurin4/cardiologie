@@ -156,6 +156,7 @@ def test_pipeline_one_call_per_variable(monkeypatch):
         return json.dumps(_payload_for_system(messages[0]["content"]))
 
     monkeypatch.setattr("src.llm.llm_extraction.call_llm", spy)
+    monkeypatch.setattr("src.llm.llm_extraction.time.sleep", lambda *_: None)
     pipe = ClinicalExtractionPipeline(load_task("cardiology_smoke"))
     report = {
         REPORT_ID_KEY: "P001",
@@ -177,6 +178,29 @@ def test_pipeline_one_call_per_variable(monkeypatch):
     assert structured["one_hot"]["cerebrovascular_event__Keine"] == 1
 
 
+def test_pipeline_partial_when_some_variables_fail(monkeypatch):
+    def spy(messages):
+        system = messages[0]["content"]
+        if "new_permanent_pacemaker" in system:
+            return ""  # force failure after retries
+        return json.dumps(_payload_for_system(system))
+
+    monkeypatch.setattr("src.llm.llm_extraction.call_llm", spy)
+    monkeypatch.setattr("src.llm.llm_extraction.LLM_MAX_RETRIES", 0)
+    monkeypatch.setattr("src.llm.llm_extraction.time.sleep", lambda *_: None)
+    pipe = ClinicalExtractionPipeline(load_task("cardiology_smoke"))
+    report = {
+        REPORT_ID_KEY: "P001",
+        REPORT_TEXT_KEY: (
+            "[Diagnoseliste]\n\n[#1]\nMediastinitis\n\n[#2]\nRevisionseingriff"
+        ),
+    }
+    row, _ = pipe.run_report(report)
+    assert row["status"] == "partial"
+    assert row["sternal_wound_infection"] == "Ja"
+    assert "new_permanent_pacemaker" in row["schema_errors"]
+
+
 def test_full_text_fallback_still_runs_all_variables(monkeypatch):
     called = {"n": 0}
 
@@ -185,6 +209,7 @@ def test_full_text_fallback_still_runs_all_variables(monkeypatch):
         return json.dumps(_payload_for_system(messages[0]["content"]))
 
     monkeypatch.setattr("src.llm.llm_extraction.call_llm", spy)
+    monkeypatch.setattr("src.llm.llm_extraction.time.sleep", lambda *_: None)
     pipe = ClinicalExtractionPipeline(load_task("cardiology_smoke"))
     report = {
         REPORT_ID_KEY: "P003",

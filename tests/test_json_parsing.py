@@ -17,6 +17,15 @@ def test_parses_json_with_trailing_prose():
     assert parse_llm_json_output(raw, "ctx") == {"a": 1, "b": "x"}
 
 
+def test_parses_usz_tokens_and_trailing_comma():
+    raw = (
+        '<start_of_turn>model\n'
+        '{"sternal_wound_infection": "Nein", "reasoning": "ok",}\n'
+        "<end_of_turn>"
+    )
+    assert parse_llm_json_output(raw, "ctx")["sternal_wound_infection"] == "Nein"
+
+
 def test_empty_raises():
     with pytest.raises(ValueError):
         parse_llm_json_output("", "ctx")

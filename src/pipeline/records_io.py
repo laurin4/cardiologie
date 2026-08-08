@@ -71,11 +71,11 @@ def load_jsonl(path: Path) -> List[Dict[str, Any]]:
 
 
 def failed_keys(rows: Sequence[Dict[str, Any]], status_field: str = "status") -> Set[Tuple[str, ...]]:
-    """Return resume keys for rows whose status is ``failed``."""
+    """Return resume keys for rows whose status is ``failed`` or ``partial``."""
     return {
         resume_key(row)
         for row in rows
-        if str(row.get(status_field, "")).strip().lower() == "failed"
+        if str(row.get(status_field, "")).strip().lower() in ("failed", "partial")
     }
 
 

@@ -8,10 +8,12 @@ def test_failed_keys():
     rows = [
         {"report_id": "a", "status": "extracted"},
         {"report_id": "b", "status": "failed"},
+        {"report_id": "c", "status": "partial"},
         {"source_row_id": "patient_2", "report_id": "", "status": "failed"},
     ]
     keys = failed_keys(rows)
     assert ("report_id", "b") in keys
+    assert ("report_id", "c") in keys
     assert ("source_row_id", "patient_2") in keys
     assert ("report_id", "a") not in keys
 
