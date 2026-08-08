@@ -122,14 +122,14 @@ Keywords: `configs/tasks/cardiology_smoke/task.py`.
 If some patients have `status=failed` and `raw_output: ""`, re-run **only those** with a longer timeout:
 
 ```bash
-python -m src.pipeline.pipeline \
+python3 -m src.pipeline.pipeline \
   --task cardiology_smoke \
-  --reports data/raw/HER_Diagnose_202601_202606.csv \
   --retry-failed \
   --llm-timeout 300
 ```
 
-Successful rows stay untouched; failed rows are replaced in the same CSV/JSONL.
+Only patients with ``status=failed`` in the existing results CSV are re-run
+(not the rest of the dataset). Successful rows stay untouched.
 
 Large Diagnoselisten (> ``EVIDENCE_MAX_FULL_TEXT_CHARS``, default 12000) are
 automatically shortened on full-text fallback only: entry headers + keyword
