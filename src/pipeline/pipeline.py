@@ -657,15 +657,18 @@ def run(
             )
         all_existing = records_io.load_checkpoint_rows(csv_path)
         all_structured = records_io.load_jsonl(jsonl_path)
-        n_failed_existing = sum(
-            1 for row in all_existing if str(row.get("status", "")).lower() == "failed"
-        )
+        failed_rows = [
+            row
+            for row in all_existing
+            if str(row.get("status", "")).strip().lower() == "failed"
+        ]
+        n_failed_existing = len(failed_rows)
         if n_failed_existing == 0:
             print(f"No failed rows in {csv_path}; nothing to retry.")
             return csv_path
 
-        # Keep only non-failed rows; re-run every input report that is not already OK.
-        # This is robust when report_id is empty (match via source_row_id / absence from OK set).
+        # Keep only non-failed rows; re-run ONLY patients that were failed in the CSV
+        # (never the whole remaining dataset).
         existing_rows = [
             row
             for row in all_existing
@@ -676,17 +679,17 @@ def run(
             for rec in all_structured
             if str(rec.get("status", "")).strip().lower() != "failed"
         ]
-        ok_keys = records_io.done_keys(existing_rows)
-        ok_report_ids = {
+        failed_key_set = records_io.failed_keys(all_existing)
+        failed_report_ids = {
             str(row.get("report_id", "")).strip()
-            for row in existing_rows
+            for row in failed_rows
             if str(row.get("report_id", "")).strip()
         }
         todo = [
             r
             for r in reports
-            if records_io.resume_key(r) not in ok_keys
-            and str(r.get(REPORT_ID_KEY, "")).strip() not in ok_report_ids
+            if records_io.resume_key(r) in failed_key_set
+            or str(r.get(REPORT_ID_KEY, "")).strip() in failed_report_ids
         ]
         print(f"=== {task.name}: RETRY failed rows ===")
         print(
