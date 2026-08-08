@@ -5,8 +5,8 @@ A "report" is the atomic unit the pipeline consumes: ``{report_id, report_text,
 <metadata...>}``. Supported input shapes:
 
 1. A CSV/Excel with a configurable id column and text column.
-2. A HER-style Diagnose table (PatientID + Diagnose_Value) aggregated to one
-   Diagnoseliste per patient.
+2. One or more HER-style Diagnose tables (PatientID + Diagnose_Value) aggregated
+   to one Diagnoseliste per patient (files are merged by PatientID).
 3. A directory of ``.txt`` files (one report per file; ``report_id`` = file stem).
 """
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Union
 
 from configs.config import (
     DEFAULT_REPORTS_CSV,
@@ -36,6 +36,8 @@ REPORT_ID_KEY = "report_id"
 REPORT_TEXT_KEY = "report_text"
 
 _TABULAR_SUFFIXES = {".csv", ".tsv", ".txt", ".xlsx", ".xls", ".xlsm"}
+
+SourceArg = Optional[Union[Path, str, Sequence[Union[Path, str]]]]
 
 
 def _stitch_sections(row: Dict[str, str], section_columns: Sequence[str]) -> str:
@@ -135,47 +137,118 @@ def load_reports_from_txt_dir(directory: Path) -> List[dict]:
     return records
 
 
-def _default_her_diagnose_path() -> Optional[Path]:
-    """Prefer a HER_Diagnose*.csv under data/raw/; fall back to other tabular formats."""
-    if not RAW_DATA_DIR.exists():
-        return None
-    candidates = sorted(RAW_DATA_DIR.glob("HER_Diagnose*"))
-    csv_first = [p for p in candidates if p.suffix.lower() == ".csv"]
-    other = [
+def discover_her_diagnose_paths(raw_dir: Optional[Path] = None) -> List[Path]:
+    """
+    Find all HER_Diagnose* tabular files under data/raw/.
+
+    Prefers CSV when both CSV and Excel exist for the same stem; otherwise keeps
+    every distinct path (e.g. HER_Diagnose_202601_202606.csv + HER_Diagnose_vor2026.xlsx).
+    """
+    root = Path(raw_dir) if raw_dir is not None else RAW_DATA_DIR
+    if not root.exists():
+        return []
+    candidates = sorted(root.glob("HER_Diagnose*"))
+    tabular = [
         p
         for p in candidates
-        if p.suffix.lower() in _TABULAR_SUFFIXES and p.suffix.lower() != ".csv"
+        if p.is_file() and (p.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(p))
     ]
-    for path in csv_first + other:
-        return path
-    return None
+    # Prefer .csv over excel for the same stem.
+    by_stem: Dict[str, Path] = {}
+    for path in tabular:
+        stem = path.stem
+        prev = by_stem.get(stem)
+        if prev is None:
+            by_stem[stem] = path
+            continue
+        if prev.suffix.lower() != ".csv" and path.suffix.lower() == ".csv":
+            by_stem[stem] = path
+    return sorted(by_stem.values(), key=lambda p: p.name.lower())
 
 
-def load_reports(source: Optional[Path] = None, **table_kwargs) -> List[dict]:
+def _normalize_sources(source: SourceArg) -> List[Path]:
+    if source is None:
+        return []
+    if isinstance(source, (str, Path)):
+        return [Path(source)]
+    return [Path(p) for p in source]
+
+
+def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
     """
     Load reports from *source*.
 
     - Explicit directory           -> txt files
-    - Explicit CSV/Excel           -> table loader (auto-detects HER Diagnose)
-    - ``None``                     -> HER_Diagnose* in data/raw, else default CSV/txt
+    - One or more CSV/Excel paths  -> table loader; multiple HER Diagnose files
+      are concatenated then aggregated by PatientID
+    - ``None``                     -> all HER_Diagnose* in data/raw/, else default CSV/txt
     """
-    if source is not None:
-        source = Path(source)
-        if source.is_dir():
-            return load_reports_from_txt_dir(source)
-        if source.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(source):
-            return load_reports_from_table(source, **table_kwargs)
-        raise ValueError(f"Unsupported report source: {source}")
-
-    her_path = _default_her_diagnose_path()
-    if her_path is not None:
-        LOGGER.info("Using default HER Diagnose input: %s", her_path)
-        return load_reports_from_table(her_path, **table_kwargs)
-    if DEFAULT_REPORTS_CSV.exists():
-        return load_reports_from_table(DEFAULT_REPORTS_CSV, **table_kwargs)
-    if DEFAULT_REPORTS_TXT_DIR.exists():
-        return load_reports_from_txt_dir(DEFAULT_REPORTS_TXT_DIR)
-    raise FileNotFoundError(
-        f"No report input found. Place a HER_Diagnose CSV/Excel under {RAW_DATA_DIR}, "
-        f"a CSV at {DEFAULT_REPORTS_CSV}, or .txt files at {DEFAULT_REPORTS_TXT_DIR}."
+    from src.preprocessing.diagnose_loader import (
+        load_patient_diagnoseliste_many,
+        looks_like_her_diagnose_table,
     )
+
+    paths = _normalize_sources(source)
+
+    if not paths:
+        her_paths = discover_her_diagnose_paths()
+        if her_paths:
+            LOGGER.info(
+                "Using %d default HER Diagnose input(s): %s",
+                len(her_paths),
+                ", ".join(p.name for p in her_paths),
+            )
+            return load_patient_diagnoseliste_many(her_paths)
+        if DEFAULT_REPORTS_CSV.exists():
+            return load_reports_from_table(DEFAULT_REPORTS_CSV, **table_kwargs)
+        if DEFAULT_REPORTS_TXT_DIR.exists():
+            return load_reports_from_txt_dir(DEFAULT_REPORTS_TXT_DIR)
+        raise FileNotFoundError(
+            f"No report input found. Place HER_Diagnose CSV/Excel under {RAW_DATA_DIR}, "
+            f"a CSV at {DEFAULT_REPORTS_CSV}, or .txt files at {DEFAULT_REPORTS_TXT_DIR}."
+        )
+
+    if len(paths) == 1 and paths[0].is_dir():
+        return load_reports_from_txt_dir(paths[0])
+
+    for path in paths:
+        if not path.exists():
+            raise FileNotFoundError(f"Report input missing: {path}")
+
+    # Multiple / single tabular paths.
+    her_paths = [
+        p
+        for p in paths
+        if (p.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(p))
+        and looks_like_her_diagnose_table(p)
+    ]
+    other_paths = [p for p in paths if p not in her_paths]
+
+    if her_paths and other_paths:
+        raise ValueError(
+            "Cannot mix HER Diagnose tables with other report sources in one call. "
+            f"HER={ [p.name for p in her_paths] }, other={ [p.name for p in other_paths] }"
+        )
+
+    if her_paths:
+        LOGGER.info(
+            "Loading %d HER Diagnose file(s): %s",
+            len(her_paths),
+            ", ".join(p.name for p in her_paths),
+        )
+        return load_patient_diagnoseliste_many(her_paths)
+
+    if len(paths) == 1:
+        path = paths[0]
+        if path.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(path):
+            return load_reports_from_table(path, **table_kwargs)
+        raise ValueError(f"Unsupported report source: {path}")
+
+    # Multiple non-HER tabular files: load sequentially.
+    records: List[dict] = []
+    for path in paths:
+        if path.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(path):
+            records.extend(load_reports_from_table(path, **table_kwargs))
+        else:
+            raise ValueError(f"Unsupported report source: {path}")
+    return records

@@ -89,13 +89,20 @@ Run controls:
 Place the sensitive HER Diagnose export under `data/raw/` as CSV (preferred). Then:
 
 ```bash
-export MAX_REPORTS=30
-python -m src.pipeline.pipeline \
+# Both (or all) HER_Diagnose* files under data/raw/ — preferred:
+python3 -m src.pipeline.pipeline \
   --task cardiology_smoke \
-  --reports data/raw/HER_Diagnose_202601_202606.csv
+  --max-reports 2
+
+# Or explicit paths (CSV and/or Excel), merged by PatientID:
+python3 -m src.pipeline.pipeline \
+  --task cardiology_smoke \
+  --reports data/raw/HER_Diagnose_202601_202606.csv data/raw/HER_Diagnose_vor2026.xlsx \
+  --max-reports 2
 ```
 
-If you omit `--reports` and a `HER_Diagnose*.csv` is in `data/raw/`, that file is used automatically.
+If you omit `--reports`, **all** `HER_Diagnose*` files in `data/raw/` are loaded
+and merged (one Diagnoseliste per PatientID).
 
 Interpretability artifacts:
 - CSV columns `reasoning`, `evidence_quotes`, `stage_path`, plus one-hot `field__value` columns

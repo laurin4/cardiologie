@@ -14,13 +14,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence, Union
 
 import pandas as pd
 
 from src.preprocessing.report_identity import SOURCE_ROW_ID_COL, normalize_str
 from src.preprocessing.report_loader import REPORT_ID_KEY, REPORT_TEXT_KEY
 from src.utils.table_io import read_table
+
+PathLike = Union[str, Path]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -109,16 +111,43 @@ def build_patient_diagnoseliste_records(df: pd.DataFrame) -> List[dict]:
 
 def load_patient_diagnoseliste(path: Path) -> List[dict]:
     """Load a HER Diagnose CSV/Excel file into patient-level pipeline records."""
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"Diagnose input missing: {path}")
-    df = read_table(path)
-    records = build_patient_diagnoseliste_records(df)
+    return load_patient_diagnoseliste_many([path])
+
+
+def load_patient_diagnoseliste_many(paths: Sequence[PathLike]) -> List[dict]:
+    """
+    Load one or more HER Diagnose CSV/Excel files and aggregate by PatientID.
+
+    Rows from all files are concatenated first, then sorted by Diagnose_Time
+    (when available), so a patient who appears in multiple exports gets one
+    merged Diagnoseliste.
+    """
+    resolved: List[Path] = []
+    frames: List[pd.DataFrame] = []
+    for raw in paths:
+        path = Path(raw)
+        if not path.exists():
+            raise FileNotFoundError(f"Diagnose input missing: {path}")
+        df = read_table(path)
+        work = df.copy()
+        work["_source_file"] = path.name
+        frames.append(work)
+        resolved.append(path)
+
+    if not frames:
+        raise FileNotFoundError("No HER Diagnose input paths provided.")
+
+    combined = pd.concat(frames, ignore_index=True)
+    records = build_patient_diagnoseliste_records(combined)
+    source_names = ", ".join(p.name for p in resolved)
+    for rec in records:
+        rec["source_files"] = source_names
     LOGGER.info(
-        "Loaded %d patient Diagnoseliste records from %s (%d raw rows)",
+        "Loaded %d patient Diagnoseliste records from %d file(s) (%d raw rows): %s",
         len(records),
-        path,
-        len(df),
+        len(resolved),
+        len(combined),
+        source_names,
     )
     return records
 

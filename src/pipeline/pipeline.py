@@ -619,7 +619,7 @@ def _count_statuses(rows: Sequence[Dict[str, Any]]) -> Tuple[int, int, int]:
 def run(
     task_name: str,
     *,
-    source: Optional[Path] = None,
+    source: Optional[Path | Sequence[Path]] = None,
     output_dir: Optional[Path] = None,
     max_reports: Optional[int] = MAX_REPORTS,
     retry_failed: bool = False,
@@ -628,6 +628,7 @@ def run(
     """
     Run the pipeline for *task_name* and write CSV + JSONL results.
 
+    ``source`` may be one path or several HER Diagnose files (merged by PatientID).
     ``retry_failed=True`` re-runs only rows with ``status=failed`` from an existing
     results CSV and merges them back (successful rows are kept).
     """
@@ -784,8 +785,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--reports",
+        nargs="*",
         default=None,
-        help="Path to a HER Diagnose CSV (preferred), Excel, reports table, or .txt directory.",
+        help=(
+            "One or more HER Diagnose CSV/Excel paths (merged by PatientID), "
+            "a reports table, or a .txt directory. "
+            "If omitted, all HER_Diagnose* files under data/raw/ are used."
+        ),
     )
     parser.add_argument("--output-dir", default=None, help="Output directory for results.")
     parser.add_argument(
@@ -811,7 +817,14 @@ def main() -> None:
     max_reports = (
         parse_max_reports_env(args.max_reports) if args.max_reports is not None else MAX_REPORTS
     )
-    source = Path(args.reports) if args.reports else None
+    if args.reports is None:
+        source = None
+    elif len(args.reports) == 0:
+        source = None
+    elif len(args.reports) == 1:
+        source = Path(args.reports[0])
+    else:
+        source = [Path(p) for p in args.reports]
     output_dir = Path(args.output_dir) if args.output_dir else None
     run(
         args.task,
