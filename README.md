@@ -105,7 +105,7 @@ Primary (USZ local HTTP API):
 ```bash
 export LLM_PROVIDER=usz_api
 export USZ_LLM_URL=http://localhost:8100/generate
-export LLM_MODEL_LABEL=gemma4_26b_usz
+export LLM_MODEL_LABEL=gemma4_31B
 ```
 
 Optional comparison (Ollama):

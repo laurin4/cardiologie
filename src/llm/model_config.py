@@ -36,8 +36,10 @@ LLM_TOP_P = float(os.getenv("LLM_TOP_P", "0.9"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1000"))
 LLM_DISABLE_THINK = _parse_bool_env("LLM_DISABLE_THINK", False)
 
-# Timeout: LLM_TIMEOUT wins, then legacy OLLAMA_TIMEOUT, then 120s.
-TIMEOUT = int(os.getenv("LLM_TIMEOUT", os.getenv("OLLAMA_TIMEOUT", "120")))
+# Timeout: LLM_TIMEOUT wins, then legacy OLLAMA_TIMEOUT.
+# Default 300s for USZ (long Diagnoselisten); 120s for other providers.
+_DEFAULT_TIMEOUT = "300" if LLM_PROVIDER == "usz_api" else "120"
+TIMEOUT = int(os.getenv("LLM_TIMEOUT", os.getenv("OLLAMA_TIMEOUT", _DEFAULT_TIMEOUT)))
 
 # Ollama-only context window (chat options)
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
@@ -47,7 +49,7 @@ LLM_LONG_INPUT_WARNING_CHARS = int(os.getenv("LLM_LONG_INPUT_WARNING_CHARS", "12
 
 # === Model label for logging and prediction filename suffixes ===
 # - Explicit LLM_MODEL_LABEL always wins (recommended for USZ runs).
-# - If unset: `usz_api` → gemma4_26b_usz; `ollama` → OLLAMA_MODEL.
+# - If unset: `usz_api` → gemma4_31B; `ollama` → OLLAMA_MODEL.
 # OLLAMA_MODEL is never required when using usz_api unless you run Ollama.
 _llm_model_label_env = os.getenv("LLM_MODEL_LABEL")
 if _llm_model_label_env and _llm_model_label_env.strip():
@@ -55,7 +57,7 @@ if _llm_model_label_env and _llm_model_label_env.strip():
 elif LLM_PROVIDER == "ollama":
     LLM_MODEL_LABEL = OLLAMA_MODEL
 else:
-    LLM_MODEL_LABEL = "gemma4_26b_usz"
+    LLM_MODEL_LABEL = "gemma4_31B"
 
 # Request body model name for Ollama only.
 MODEL_NAME = OLLAMA_MODEL
