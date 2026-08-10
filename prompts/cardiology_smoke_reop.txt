@@ -18,3 +18,7 @@ Regeln:
 - Ausgabe AUSSCHLIESSLICH als gültiges JSON-Objekt.
 - Alle Freitextfelder auf Deutsch.
 - Enum-Werte exakt: Nein, Ja, Unbekannt.
+
+WICHTIG zu V.a. / Verdacht:
+- Steht nur „V.a. …“ / „Verdacht auf …“ ohne klare Bestätigung → Unbekannt (NICHT Ja).
+- Ja nur bei klar dokumentiertem / bestätigtem Befund.

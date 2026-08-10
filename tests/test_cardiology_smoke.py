@@ -40,6 +40,7 @@ def _payload_for_system(system: str) -> dict:
                 "evidence_quotes": [],
             },
         ),
+        # note: V.a. cases should map to Unbekannt via prompt; covered in prompt text
         (
             "sternal_wound_infection",
             {
@@ -116,7 +117,12 @@ def test_cardiology_smoke_task_loads():
     assert task.language == "de"
     assert len(task.variables) == 10
     assert task.field_by_name("sternal_wound_infection").enum == ("Nein", "Ja", "Unbekannt")
-    assert task.field_by_name("cerebrovascular_event").enum == ("Keine", "TIA", "Schlaganfall")
+    assert task.field_by_name("cerebrovascular_event").enum == (
+        "Keine",
+        "TIA",
+        "Schlaganfall",
+        "Unbekannt",
+    )
     assert task.field_by_name("reoperation_context").type == "string"
 
 

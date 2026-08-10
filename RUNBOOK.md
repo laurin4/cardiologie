@@ -111,7 +111,8 @@ Interpretability artifacts:
 - JSONL `audit.llm.per_variable` (system/user prompts + raw model output for each variable)
 
 Cardiology smoke labels are mostly binary presence: `Nein | Ja | Unbekannt`
-(CVA: `Keine | TIA | Schlaganfall`; Re-Op-/Re-Thorakotomie-Kontext: Freitext).
+(CVA: `Keine | TIA | Schlaganfall | Unbekannt`; Re-Op-/Re-Thorakotomie-Kontext: Freitext).
+Policy: **V.a. / Verdacht ohne klare Bestätigung → Unbekannt** (nicht Ja).
 **10 LLM calls per patient** (one per variable). Start with `--max-reports 2`
 when testing.
 

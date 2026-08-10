@@ -4,8 +4,13 @@ Für DIESE Abfrage prüfst du NUR:
 
 liver_cirrhosis (Leberzirrhose dokumentiert?)
    - Nein: nicht dokumentiert / explizit verneint
-   - Ja: Leberzirrhose / Cirrhose dokumentiert (Child-Pugh NICHT unterscheiden)
-   - Unbekannt: nicht sicher beurteilbar
+   - Ja: gesicherte / klar dokumentierte Leberzirrhose (Child-Pugh NICHT unterscheiden)
+   - Unbekannt: nicht sicher beurteilbar ODER nur Verdacht
+
+WICHTIG zu V.a. / Verdacht:
+- Steht nur „V.a. Leberzirrhose“, „Verdacht auf Zirrhose“, Biopsie ausstehend o.ä.
+  ohne klare Bestätigung → Unbekannt (NICHT Ja).
+- Ja nur bei klar bestätigter / explizit gesicherter Zirrhose.
 
 Zusätzlich: information_sufficient, reasoning (Deutsch), evidence_quotes.
 Keine Befunde erfinden. Ausgabe nur als JSON. Enum exakt: Nein, Ja, Unbekannt.

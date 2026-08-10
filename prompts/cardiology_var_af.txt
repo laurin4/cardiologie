@@ -9,3 +9,7 @@ postop_atrial_fibrillation (neu aufgetretenes postoperatives Vorhofflimmern?)
 
 Zusätzlich: information_sufficient, reasoning (Deutsch), evidence_quotes.
 Keine Befunde erfinden. Ausgabe nur als JSON. Enum exakt: Nein, Ja, Unbekannt.
+
+WICHTIG zu V.a. / Verdacht:
+- Steht nur „V.a. …“ / „Verdacht auf …“ ohne klare Bestätigung → Unbekannt (NICHT Ja).
+- Ja nur bei klar dokumentiertem / bestätigtem Befund.

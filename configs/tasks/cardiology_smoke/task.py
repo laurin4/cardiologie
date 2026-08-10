@@ -4,7 +4,7 @@ Cardiology smoke extraction task (Diagnoseliste).
 Clinical variables (one LLM call each; one patient row):
   - new_permanent_pacemaker      Nein|Ja|Unbekannt
   - postop_atrial_fibrillation   Nein|Ja|Unbekannt
-  - cerebrovascular_event        Keine|TIA|Schlaganfall
+  - cerebrovascular_event        Keine|TIA|Schlaganfall|Unbekannt
   - sternal_wound_infection      Nein|Ja|Unbekannt
   - reoperation_required         Nein|Ja|Unbekannt
   - reoperation_context          Freitext (Kontext rund um Re-Operation)
@@ -52,7 +52,7 @@ _YN_NORMALIZE: Dict[str, str] = {
     "tief": "Ja",
 }
 
-_CVA_ENUM = ("Keine", "TIA", "Schlaganfall")
+_CVA_ENUM = ("Keine", "TIA", "Schlaganfall", "Unbekannt")
 _CVA_NORMALIZE: Dict[str, str] = {
     "None": "Keine",
     "none": "Keine",
@@ -72,6 +72,10 @@ _CVA_NORMALIZE: Dict[str, str] = {
     "apoplex": "Schlaganfall",
     "CVI": "Schlaganfall",
     "cvi": "Schlaganfall",
+    "Unknown": "Unbekannt",
+    "unknown": "Unbekannt",
+    "Unbekannt": "Unbekannt",
+    "unbekannt": "Unbekannt",
 }
 
 _AUDIT_FIELDS = (
@@ -184,7 +188,10 @@ _FIELD_CVA = SchemaField(
     enum=_CVA_ENUM,
     required=True,
     default="Keine",
-    description="Neues zerebrovaskuläres Ereignis: Keine / TIA / Schlaganfall.",
+    description=(
+        "Neues zerebrovaskuläres Ereignis: Keine / TIA / Schlaganfall / Unbekannt. "
+        "Nur Verdacht (V.a.) → Unbekannt."
+    ),
 )
 _FIELD_SWI = _yn_field(
     "sternal_wound_infection",
@@ -218,7 +225,8 @@ _FIELD_RETHOR_CTX = SchemaField(
 )
 _FIELD_CIRRHOSIS = _yn_field(
     "liver_cirrhosis",
-    "Leberzirrhose dokumentiert (Nein/Ja/Unbekannt; ohne Child-Pugh).",
+    "Leberzirrhose dokumentiert (Nein/Ja/Unbekannt; ohne Child-Pugh). "
+    "Nur Verdacht (V.a.) → Unbekannt.",
 )
 
 _EVIDENCE_GROUPS = (

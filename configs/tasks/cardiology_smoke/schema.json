@@ -1,6 +1,6 @@
 {
   "task": "cardiology_smoke",
-  "description": "Kardiologie Diagnoseliste: mehrere Variablen, je eigene LLM-Abfrage.",
+  "description": "Kardiologie Diagnoseliste: mehrere Variablen, je eigene LLM-Abfrage. V.a./Verdacht → Unbekannt.",
   "language": "de",
   "fields": [
     "new_permanent_pacemaker",
@@ -16,5 +16,8 @@
     "information_sufficient",
     "reasoning",
     "evidence_quotes"
-  ]
+  ],
+  "policy": {
+    "suspicion_only": "V.a. / Verdacht ohne klare Bestätigung → Unbekannt (nicht Ja)"
+  }
 }

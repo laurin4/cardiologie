@@ -4,9 +4,14 @@ Für DIESE Abfrage prüfst du NUR:
 
 cerebrovascular_event (neues zerebrovaskuläres Ereignis?)
    - Keine: kein solches Ereignis dokumentiert
-   - TIA: transitorische ischämische Attacke dokumentiert
-   - Schlaganfall: Schlaganfall / Insult / Apoplex / Hirninfarkt / Hirnblutung dokumentiert
-   Wenn beides vorkommt, bevorzuge Schlaganfall.
+   - TIA: gesicherte / klar dokumentierte TIA
+   - Schlaganfall: gesicherter Schlaganfall / Insult / Apoplex / Hirninfarkt / Hirnblutung
+   - Unbekannt: nicht sicher beurteilbar ODER nur Verdacht (V.a.)
+   Wenn TIA und Schlaganfall klar vorkommen, bevorzuge Schlaganfall.
+
+WICHTIG zu V.a. / Verdacht:
+- „V.a. Schlaganfall“, „V.a. TIA“, „Verdacht auf …“ ohne klare Bestätigung → Unbekannt
+  (nicht TIA/Schlaganfall).
 
 Zusätzlich: information_sufficient, reasoning (Deutsch), evidence_quotes.
-Keine Befunde erfinden. Ausgabe nur als JSON. Enum exakt: Keine, TIA, Schlaganfall.
+Keine Befunde erfinden. Ausgabe nur als JSON. Enum exakt: Keine, TIA, Schlaganfall, Unbekannt.
