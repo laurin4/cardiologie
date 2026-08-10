@@ -112,7 +112,8 @@ Interpretability artifacts:
 
 Cardiology smoke labels are mostly binary presence: `Nein | Ja | Unbekannt`
 (CVA: `Keine | TIA | Schlaganfall | Unbekannt`; Re-Op-/Re-Thorakotomie-Kontext: Freitext).
-Policy: **V.a. / Verdacht ohne klare Bestätigung → Unbekannt** (nicht Ja).
+Policy: **V.a. / Verdacht zählt nicht als Ja**; steht sonst nichts Bestätigtes
+→ **Unbekannt** (gilt für alle Klassifikations-Variablen, nicht nur Zirrhose).
 **10 LLM calls per patient** (one per variable). Start with `--max-reports 2`
 when testing.
 

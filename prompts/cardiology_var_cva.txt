@@ -9,9 +9,11 @@ cerebrovascular_event (neues zerebrovaskuläres Ereignis?)
    - Unbekannt: nicht sicher beurteilbar ODER nur Verdacht (V.a.)
    Wenn TIA und Schlaganfall klar vorkommen, bevorzuge Schlaganfall.
 
-WICHTIG zu V.a. / Verdacht:
-- „V.a. Schlaganfall“, „V.a. TIA“, „Verdacht auf …“ ohne klare Bestätigung → Unbekannt
-  (nicht TIA/Schlaganfall).
-
 Zusätzlich: information_sufficient, reasoning (Deutsch), evidence_quotes.
 Keine Befunde erfinden. Ausgabe nur als JSON. Enum exakt: Keine, TIA, Schlaganfall, Unbekannt.
+
+WICHTIG zu V.a. / Verdacht (gilt allgemein):
+- Ein bloßer Verdacht („V.a. …“, „Verdacht auf …“) zählt NICHT als positiver Beleg für Ja.
+- Steht zu dieser Variable nur V.a./Verdacht und keine klare Bestätigung → Unbekannt.
+- Gibt es unabhängig davon eine klare, bestätigte Dokumentation → Ja (bzw. bei CVA TIA/Schlaganfall) ist weiterhin erlaubt.
+- V.a. allein darf die Klassifikation nicht Richtung Ja ziehen.

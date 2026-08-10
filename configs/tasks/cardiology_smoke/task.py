@@ -190,7 +190,7 @@ _FIELD_CVA = SchemaField(
     default="Keine",
     description=(
         "Neues zerebrovaskuläres Ereignis: Keine / TIA / Schlaganfall / Unbekannt. "
-        "Nur Verdacht (V.a.) → Unbekannt."
+        "V.a./Verdacht allein zählt nicht als positiver Beleg → Unbekannt."
     ),
 )
 _FIELD_SWI = _yn_field(
@@ -226,7 +226,7 @@ _FIELD_RETHOR_CTX = SchemaField(
 _FIELD_CIRRHOSIS = _yn_field(
     "liver_cirrhosis",
     "Leberzirrhose dokumentiert (Nein/Ja/Unbekannt; ohne Child-Pugh). "
-    "Nur Verdacht (V.a.) → Unbekannt.",
+    "V.a./Verdacht allein zählt nicht als positiver Beleg → Unbekannt.",
 )
 
 _EVIDENCE_GROUPS = (

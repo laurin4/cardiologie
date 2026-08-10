@@ -18,6 +18,6 @@
     "evidence_quotes"
   ],
   "policy": {
-    "suspicion_only": "V.a. / Verdacht ohne klare Bestätigung → Unbekannt (nicht Ja)"
+    "suspicion_only": "V.a./Verdacht is not positive evidence for Ja; if nothing else confirmed → Unbekannt (all classification variables)"
   }
 }
