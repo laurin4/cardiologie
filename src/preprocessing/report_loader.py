@@ -206,6 +206,12 @@ def _attach_verlegung(records: List[dict], verlegung_paths: Sequence[Path]) -> L
         len(records),
         len(by_patient),
     )
+    if records and n_hit == 0 and by_patient:
+        LOGGER.warning(
+            "Verlegungsbericht join matched 0 patients. Check PatientID vs patnr "
+            "(formats / leading zeros / Excel .0). Run: "
+            "python3 scripts/check_verlegung_join.py"
+        )
     return records
 
 

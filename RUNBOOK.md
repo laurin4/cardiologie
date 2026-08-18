@@ -166,6 +166,17 @@ python scripts/export_review_sheet.py --task cardiology_smoke --max-rows 20 --fo
 
 Open the CSV in Excel, fill `correct_reop` / `notes`.
 
+### Check Diagnoseliste ↔ Verlegung join
+
+Before a run (or if SM/MOV look empty), verify PatientID/`patnr` overlap:
+
+```bash
+python3 scripts/check_verlegung_join.py
+```
+
+Prints match rate and sample IDs. Exit code `2` if overlap is 0 (merge would be silent empty).
+Excel-style IDs (`12345.0`) are normalized to `12345`.
+
 ## Tests
 
 ```bash
