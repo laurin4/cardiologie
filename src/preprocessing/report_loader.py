@@ -148,6 +148,8 @@ def discover_her_diagnose_paths(raw_dir: Optional[Path] = None) -> List[Path]:
     if not root.exists():
         return []
     candidates = sorted(root.glob("HER_Diagnose*"))
+    # Do not pick up Verlegungsbericht files that happen to match a broad glob.
+    candidates = [p for p in candidates if "verlegung" not in p.name.lower()]
     tabular = [
         p
         for p in candidates
@@ -174,31 +176,70 @@ def _normalize_sources(source: SourceArg) -> List[Path]:
     return [Path(p) for p in source]
 
 
+def _attach_verlegung(records: List[dict], verlegung_paths: Sequence[Path]) -> List[dict]:
+    """Merge latest Verlegungsbericht text onto Diagnoseliste patient records."""
+    if not verlegung_paths:
+        return records
+    from src.preprocessing.verlegung_loader import (
+        VERLEGUNG_TEXT_KEY,
+        load_verlegung_by_patient,
+    )
+
+    by_patient = load_verlegung_by_patient(verlegung_paths)
+    n_hit = 0
+    for rec in records:
+        pid = normalize_str(rec.get("patient_id") or rec.get(REPORT_ID_KEY) or "")
+        info = by_patient.get(pid)
+        if not info:
+            rec.setdefault(VERLEGUNG_TEXT_KEY, "")
+            continue
+        n_hit += 1
+        rec.update(info)
+        # Keep report_text as Diagnoseliste; combined text is built per-variable.
+        src = str(rec.get("source_files") or "")
+        extra = ", ".join(Path(p).name for p in verlegung_paths)
+        rec["source_files"] = f"{src}; {extra}" if src else extra
+        rec["input_kind"] = "patient_diagnoseliste+verlegung"
+    LOGGER.info(
+        "Attached Verlegungsbericht to %d / %d patients (%d verlegung patients available)",
+        n_hit,
+        len(records),
+        len(by_patient),
+    )
+    return records
+
+
 def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
     """
     Load reports from *source*.
 
     - Explicit directory           -> txt files
-    - One or more CSV/Excel paths  -> table loader; multiple HER Diagnose files
-      are concatenated then aggregated by PatientID
-    - ``None``                     -> all HER_Diagnose* in data/raw/, else default CSV/txt
+    - HER Diagnose CSV/Excel       -> patient Diagnoseliste; optionally merge
+      HER_Verlegungsbericht* (latest by berdat) onto the same patients
+    - ``None``                     -> all HER_Diagnose* (+ Verlegung) under data/raw/
     """
     from src.preprocessing.diagnose_loader import (
         load_patient_diagnoseliste_many,
         looks_like_her_diagnose_table,
+    )
+    from src.preprocessing.verlegung_loader import (
+        discover_her_verlegung_paths,
+        looks_like_her_verlegung_table,
     )
 
     paths = _normalize_sources(source)
 
     if not paths:
         her_paths = discover_her_diagnose_paths()
+        verlegung_paths = discover_her_verlegung_paths()
         if her_paths:
             LOGGER.info(
                 "Using %d default HER Diagnose input(s): %s",
                 len(her_paths),
                 ", ".join(p.name for p in her_paths),
             )
-            return load_patient_diagnoseliste_many(her_paths)
+            records = load_patient_diagnoseliste_many(her_paths)
+            return _attach_verlegung(records, verlegung_paths)
         if DEFAULT_REPORTS_CSV.exists():
             return load_reports_from_table(DEFAULT_REPORTS_CSV, **table_kwargs)
         if DEFAULT_REPORTS_TXT_DIR.exists():
@@ -215,19 +256,25 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
         if not path.exists():
             raise FileNotFoundError(f"Report input missing: {path}")
 
-    # Multiple / single tabular paths.
     her_paths = [
         p
         for p in paths
         if (p.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(p))
         and looks_like_her_diagnose_table(p)
     ]
-    other_paths = [p for p in paths if p not in her_paths]
+    verlegung_paths = [
+        p
+        for p in paths
+        if (p.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(p))
+        and looks_like_her_verlegung_table(p)
+        and p not in her_paths
+    ]
+    other_paths = [p for p in paths if p not in her_paths and p not in verlegung_paths]
 
-    if her_paths and other_paths:
+    if other_paths and (her_paths or verlegung_paths):
         raise ValueError(
-            "Cannot mix HER Diagnose tables with other report sources in one call. "
-            f"HER={ [p.name for p in her_paths] }, other={ [p.name for p in other_paths] }"
+            "Cannot mix HER clinical tables with other report sources in one call. "
+            f"other={ [p.name for p in other_paths] }"
         )
 
     if her_paths:
@@ -236,7 +283,34 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
             len(her_paths),
             ", ".join(p.name for p in her_paths),
         )
-        return load_patient_diagnoseliste_many(her_paths)
+        records = load_patient_diagnoseliste_many(her_paths)
+        # If caller did not pass Verlegung files, still auto-attach from data/raw/.
+        attach = verlegung_paths or discover_her_verlegung_paths()
+        return _attach_verlegung(records, attach)
+
+    if verlegung_paths and not her_paths:
+        # Verlegung-only: synthesize patient records from Verlegung text.
+        from src.preprocessing.verlegung_loader import (
+            VERLEGUNG_TEXT_KEY,
+            load_verlegung_by_patient,
+        )
+
+        by_patient = load_verlegung_by_patient(verlegung_paths)
+        records = []
+        for i, (pid, info) in enumerate(by_patient.items()):
+            text = info.get(VERLEGUNG_TEXT_KEY, "")
+            records.append(
+                {
+                    REPORT_ID_KEY: pid,
+                    REPORT_TEXT_KEY: text,
+                    "diagnoseliste_text": "",
+                    SOURCE_ROW_ID_COL: f"patient_{i}",
+                    "patient_id": pid,
+                    "input_kind": "patient_verlegung",
+                    **info,
+                }
+            )
+        return records
 
     if len(paths) == 1:
         path = paths[0]
@@ -244,8 +318,7 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
             return load_reports_from_table(path, **table_kwargs)
         raise ValueError(f"Unsupported report source: {path}")
 
-    # Multiple non-HER tabular files: load sequentially.
-    records: List[dict] = []
+    records = []
     for path in paths:
         if path.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(path):
             records.extend(load_reports_from_table(path, **table_kwargs))

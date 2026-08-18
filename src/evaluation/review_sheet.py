@@ -10,7 +10,6 @@ CLINICAL_COLUMNS = [
     "new_permanent_pacemaker",
     "postop_atrial_fibrillation",
     "cerebrovascular_event",
-    "sternal_wound_infection",
     "reoperation_required",
     "reoperation_context",
     "multi_system_failure",
@@ -26,7 +25,6 @@ COLUMNS = [
     "information_sufficient",
     "evidence_quotes",
     "reasoning",
-    "correct_swi",
     "correct_reop",
     "notes",
 ]
@@ -71,7 +69,6 @@ def build_review_rows(result_rows: list[dict]) -> list[dict]:
             "information_sufficient": _clean(row.get("information_sufficient")),
             "evidence_quotes": _quotes_cell(row.get("evidence_quotes")),
             "reasoning": _clean(row.get("reasoning")).replace("\n", " "),
-            "correct_swi": "",
             "correct_reop": "",
             "notes": "",
         }

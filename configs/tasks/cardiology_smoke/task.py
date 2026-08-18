@@ -1,20 +1,22 @@
 """
-Cardiology smoke extraction task (Diagnoseliste).
+Cardiology smoke extraction task (Diagnoseliste + Verlegungsbericht).
 
 Clinical variables (one LLM call each; one patient row):
-  - new_permanent_pacemaker      Nein|Ja|Unbekannt
-  - postop_atrial_fibrillation   Nein|Ja|Unbekannt
-  - cerebrovascular_event        Keine|TIA|Schlaganfall|Unbekannt
-  - sternal_wound_infection      Nein|Ja|Unbekannt
-  - reoperation_required         Nein|Ja|Unbekannt
-  - reoperation_context          Freitext (Kontext rund um Re-Operation)
-  - multi_system_failure         Nein|Ja|Unbekannt
-  - rethoracotomy                Nein|Ja|Unbekannt
-  - rethoracotomy_context        Freitext (Kontext rund um Re-Thorakotomie)
-  - liver_cirrhosis              Nein|Ja|Unbekannt
+  - new_permanent_pacemaker      Nein|Ja|Unbekannt   ← Verlegungsbericht
+  - postop_atrial_fibrillation   Nein|Ja|Unbekannt   ← Verlegung + Diagnoseliste
+  - cerebrovascular_event        Keine|TIA|Schlaganfall|Unbekannt ← both
+  - reoperation_required         Nein|Ja|Unbekannt   ← interim text (final: strukturiert)
+  - reoperation_context          Freitext            ← interim text
+  - multi_system_failure         Nein|Ja|Unbekannt   ← Verlegungsbericht
+  - rethoracotomy                Nein|Ja|Unbekannt   ← interim Verlegung (final: Opsbericht)
+  - rethoracotomy_context        Freitext            ← interim
+  - liver_cirrhosis              Nein|Ja|Unbekannt   ← interim Diagnose±Verlegung
+                                                  (final: Eintrittsbericht / Child-Pugh)
 
+SWI (sternal wound infection) is out of scope for LLM extraction.
 Fine severity (oberflächlich/tief, Child-Pugh, …) is deferred.
 Keywords/prompts/outputs: German; field names: English.
+Policy: V.a./Verdacht alone → Unbekannt (unless clearly confirmed elsewhere).
 """
 
 from __future__ import annotations
@@ -124,6 +126,7 @@ def _yn_variable(
     prompt_name: str,
     description: str,
     evidence_group_names: Tuple[str, ...],
+    text_source: str = "report",
 ) -> VariableSpec:
     field = _yn_field(name, description)
     return VariableSpec(
@@ -140,6 +143,7 @@ def _yn_variable(
                 "then_required": ["reasoning", name],
             },
         ),
+        text_source=text_source,
     )
 
 
@@ -150,6 +154,7 @@ def _text_variable(
     prompt_name: str,
     description: str,
     evidence_group_names: Tuple[str, ...],
+    text_source: str = "report",
 ) -> VariableSpec:
     field = SchemaField(
         name=name,
@@ -171,6 +176,7 @@ def _text_variable(
                 "then_required": ["reasoning", name],
             },
         ),
+        text_source=text_source,
     )
 
 
@@ -193,13 +199,10 @@ _FIELD_CVA = SchemaField(
         "V.a./Verdacht allein zählt nicht als positiver Beleg → Unbekannt."
     ),
 )
-_FIELD_SWI = _yn_field(
-    "sternal_wound_infection",
-    "Sternale Wundinfektion dokumentiert (Nein/Ja/Unbekannt; ohne Schweregrad).",
-)
 _FIELD_REOP = _yn_field(
     "reoperation_required",
-    "Re-Operation erforderlich/durchgeführt (Nein/Ja/Unbekannt).",
+    "Re-Operation erforderlich/durchgeführt (Nein/Ja/Unbekannt). "
+    "Interim: Textquellen; final geplant über strukturierte OP-Daten (Rodney).",
 )
 _FIELD_REOP_CTX = SchemaField(
     name="reoperation_context",
@@ -214,7 +217,8 @@ _FIELD_MSF = _yn_field(
 )
 _FIELD_RETHOR = _yn_field(
     "rethoracotomy",
-    "Re-Thorakotomie durchgeführt (Nein/Ja/Unbekannt).",
+    "Re-Thorakotomie durchgeführt (Nein/Ja/Unbekannt). "
+    "Interim: Verlegungsbericht; final geplant über Operationsbericht.",
 )
 _FIELD_RETHOR_CTX = SchemaField(
     name="rethoracotomy_context",
@@ -226,6 +230,7 @@ _FIELD_RETHOR_CTX = SchemaField(
 _FIELD_CIRRHOSIS = _yn_field(
     "liver_cirrhosis",
     "Leberzirrhose dokumentiert (Nein/Ja/Unbekannt; ohne Child-Pugh). "
+    "Interim: Diagnoseliste±Verlegung; final: Eintrittsbericht. "
     "V.a./Verdacht allein zählt nicht als positiver Beleg → Unbekannt.",
 )
 
@@ -283,42 +288,6 @@ _EVIDENCE_GROUPS = (
             "hirninfarkt",
             "hirnblutung",
             "intrazerebrale blutung",
-        ),
-    ),
-    EvidenceGroup(
-        name="sternale_wundinfektion",
-        role="positive",
-        priority=1,
-        phrases=(
-            "mediastinitis",
-            "sternale wundinfektion",
-            "sternale wundinfekt",
-            "sternaler wundinfekt",
-            "sternaler wundinfektion",
-            "sternalem wundinfekt",
-            "sternales wundinfekt",
-            "sternumwundinfekt",
-            "sternumwundinfektion",
-            "wundinfekt sternum",
-            "wundinfektion sternum",
-            "wundinfekt sternal",
-            "wundinfektion sternal",
-            "sternale infektion",
-            "sternale infekt",
-            "tiefe sternale",
-            "tiefer sternaler",
-            "tief sternale",
-            "oberflächliche sternale",
-            "oberflaechliche sternale",
-            "oberflächlicher sternaler",
-            "osteomyelitis sternum",
-            "sternumosteomyelitis",
-            "sternalem vac",
-            "sternales vac",
-            "sternale vac",
-            "vac sternum",
-            "offener thorax",
-            "offen belassener thorax",
         ),
     ),
     EvidenceGroup(
@@ -400,31 +369,10 @@ _EVIDENCE_GROUPS = (
         ),
     ),
     EvidenceGroup(
-        name="wund_kontext",
-        role="context",
-        priority=2,
-        phrases=(
-            "wundinfekt",
-            "wundinfektion",
-            "dehiszenz",
-            "wunddehiszenz",
-            "sternum",
-            "sternal",
-            "wunddébridement",
-            "wunddebridement",
-            "vac-therapie",
-            "vac therapie",
-            "vakuumtherapie",
-        ),
-    ),
-    EvidenceGroup(
         name="verneinung",
         role="negation",
         priority=3,
         phrases=(
-            "kein wundinfekt",
-            "keine wundinfektion",
-            "ohne wundinfekt",
             "kein reeingriff",
             "kein re-eingriff",
             "keine revision",
@@ -443,8 +391,6 @@ _EVIDENCE_GROUPS = (
 )
 
 _NEGATION_PATTERNS = (
-    (r"\bkein(?:e|en)?\b.{0,30}?\bwundinfekt", "kein_wundinfekt"),
-    (r"\bohne\b.{0,30}?\bwundinfekt", "ohne_wundinfekt"),
     (r"\bkein(?:e|en)?\b.{0,30}?\brevision", "keine_revision"),
     (r"\bkein(?:e|en)?\b.{0,30}?\bre-?operation", "keine_reoperation"),
     (r"\bkein(?:e|en)?\b.{0,30}?\breeingriff", "kein_reeingriff"),
@@ -455,7 +401,14 @@ _NEGATION_PATTERNS = (
     (r"\bkein(?:e|en)?\b.{0,40}?\bzirrhose", "keine_zirrhose"),
 )
 
-_SECTION_MARKERS = (("[Diagnoseliste]", "diagnoseliste"),)
+_SECTION_MARKERS = (
+    ("[Diagnoseliste]", "diagnoseliste"),
+    ("[Verlegungsbericht]", "verlegungsbericht"),
+    ("[diag]", "diag"),
+    ("[epikrise]", "epikrise"),
+    ("[jetziges_leiden]", "jetziges_leiden"),
+    ("[prozedere]", "prozedere"),
+)
 
 VARIABLE_PACEMAKER = _yn_variable(
     name="new_permanent_pacemaker",
@@ -463,6 +416,7 @@ VARIABLE_PACEMAKER = _yn_variable(
     prompt_name="cardiology_var_pacemaker",
     description=_FIELD_PACEMAKER.description,
     evidence_group_names=("schrittmacher", "verneinung"),
+    text_source="verlegung",
 )
 VARIABLE_AF = _yn_variable(
     name="postop_atrial_fibrillation",
@@ -470,6 +424,7 @@ VARIABLE_AF = _yn_variable(
     prompt_name="cardiology_var_af",
     description=_FIELD_AF.description,
     evidence_group_names=("vorhofflimmern", "verneinung"),
+    text_source="both",
 )
 VARIABLE_CVA = VariableSpec(
     name="cerebrovascular_event",
@@ -485,13 +440,7 @@ VARIABLE_CVA = VariableSpec(
             "then_required": ["reasoning", "cerebrovascular_event"],
         },
     ),
-)
-VARIABLE_SWI = _yn_variable(
-    name="sternal_wound_infection",
-    label="Sternale Wundinfektion",
-    prompt_name="cardiology_smoke_swi",
-    description=_FIELD_SWI.description,
-    evidence_group_names=("sternale_wundinfektion", "wund_kontext", "verneinung"),
+    text_source="both",
 )
 VARIABLE_REOP = _yn_variable(
     name="reoperation_required",
@@ -499,6 +448,7 @@ VARIABLE_REOP = _yn_variable(
     prompt_name="cardiology_smoke_reop",
     description=_FIELD_REOP.description,
     evidence_group_names=("reeingriff", "verneinung"),
+    text_source="both",
 )
 VARIABLE_REOP_CTX = _text_variable(
     name="reoperation_context",
@@ -506,6 +456,7 @@ VARIABLE_REOP_CTX = _text_variable(
     prompt_name="cardiology_var_reop_context",
     description=_FIELD_REOP_CTX.description,
     evidence_group_names=("reeingriff", "verneinung"),
+    text_source="both",
 )
 VARIABLE_MSF = _yn_variable(
     name="multi_system_failure",
@@ -513,6 +464,7 @@ VARIABLE_MSF = _yn_variable(
     prompt_name="cardiology_var_msf",
     description=_FIELD_MSF.description,
     evidence_group_names=("multi_organ", "verneinung"),
+    text_source="verlegung",
 )
 VARIABLE_RETHOR = _yn_variable(
     name="rethoracotomy",
@@ -520,6 +472,7 @@ VARIABLE_RETHOR = _yn_variable(
     prompt_name="cardiology_var_rethoracotomy",
     description=_FIELD_RETHOR.description,
     evidence_group_names=("rethorakotomie", "reeingriff", "verneinung"),
+    text_source="verlegung",
 )
 VARIABLE_RETHOR_CTX = _text_variable(
     name="rethoracotomy_context",
@@ -527,6 +480,7 @@ VARIABLE_RETHOR_CTX = _text_variable(
     prompt_name="cardiology_var_rethor_context",
     description=_FIELD_RETHOR_CTX.description,
     evidence_group_names=("rethorakotomie", "reeingriff", "verneinung"),
+    text_source="verlegung",
 )
 VARIABLE_CIRRHOSIS = _yn_variable(
     name="liver_cirrhosis",
@@ -534,13 +488,13 @@ VARIABLE_CIRRHOSIS = _yn_variable(
     prompt_name="cardiology_var_cirrhosis",
     description=_FIELD_CIRRHOSIS.description,
     evidence_group_names=("leberzirrhose", "verneinung"),
+    text_source="both",
 )
 
 _CLINICAL_FIELDS = (
     _FIELD_PACEMAKER,
     _FIELD_AF,
     _FIELD_CVA,
-    _FIELD_SWI,
     _FIELD_REOP,
     _FIELD_REOP_CTX,
     _FIELD_MSF,
@@ -553,7 +507,6 @@ _VARIABLES = (
     VARIABLE_PACEMAKER,
     VARIABLE_AF,
     VARIABLE_CVA,
-    VARIABLE_SWI,
     VARIABLE_REOP,
     VARIABLE_REOP_CTX,
     VARIABLE_MSF,
@@ -565,8 +518,9 @@ _VARIABLES = (
 TASK = ExtractionTask(
     name="cardiology_smoke",
     description=(
-        "Kardiologie Diagnoseliste: mehrere klinische Variablen, "
-        "je eigene LLM-Abfrage; eine Ergebniszeile pro Patient."
+        "Kardiologie: Diagnoseliste + letzter Verlegungsbericht; "
+        "je Variable eigene LLM-Abfrage und Textquelle; eine Ergebniszeile pro Patient. "
+        "SWI out of scope. V.a./Verdacht → Unbekannt."
     ),
     language="de",
     send_full_text_when_no_evidence=True,
@@ -579,7 +533,6 @@ TASK = ExtractionTask(
         {"type": "normalize", "field": "new_permanent_pacemaker", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "postop_atrial_fibrillation", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "cerebrovascular_event", "map": _CVA_NORMALIZE},
-        {"type": "normalize", "field": "sternal_wound_infection", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "reoperation_required", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "multi_system_failure", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "rethoracotomy", "map": _YN_NORMALIZE},
@@ -592,7 +545,6 @@ TASK = ExtractionTask(
                 "new_permanent_pacemaker",
                 "postop_atrial_fibrillation",
                 "cerebrovascular_event",
-                "sternal_wound_infection",
                 "reoperation_required",
                 "multi_system_failure",
                 "rethoracotomy",

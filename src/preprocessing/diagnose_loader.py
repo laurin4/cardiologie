@@ -100,6 +100,7 @@ def build_patient_diagnoseliste_records(df: pd.DataFrame) -> List[dict]:
             {
                 REPORT_ID_KEY: str(pid),
                 REPORT_TEXT_KEY: diagnoseliste,
+                "diagnoseliste_text": diagnoseliste,
                 SOURCE_ROW_ID_COL: f"patient_{i}",
                 "patient_id": str(pid),
                 "n_diagnosis_entries": len(entries),

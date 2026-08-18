@@ -75,6 +75,12 @@ class VariableSpec:
     When a parent :class:`ExtractionTask` declares ``variables``, the pipeline
     runs one prompt/schema/keyword subset per variable and merges the results
     into a single patient row.
+
+    ``text_source`` selects which patient text feeds this variable:
+      - ``diagnoseliste`` — HER Diagnoseliste only
+      - ``verlegung`` — latest Verlegungsbericht sections only
+      - ``both`` — Diagnoseliste + Verlegungsbericht concatenated
+      - ``report`` — legacy: primary ``report_text`` field
     """
 
     name: str
@@ -83,6 +89,7 @@ class VariableSpec:
     fields: Tuple[SchemaField, ...]
     evidence_group_names: Tuple[str, ...]
     consistency_rules: Tuple[Dict[str, Any], ...] = ()
+    text_source: str = "report"
 
 
 @dataclass(frozen=True)

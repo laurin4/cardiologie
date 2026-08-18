@@ -5,13 +5,12 @@ import json
 from configs.tasks import load_task
 from configs.tasks.base import ExtractionTask
 from src.pipeline.pipeline import ClinicalExtractionPipeline
-from src.preprocessing.report_loader import REPORT_ID_KEY, REPORT_TEXT_KEY, load_reports
+from src.preprocessing.report_loader import REPORT_ID_KEY, REPORT_TEXT_KEY
 from src.prompts.registry import build_system_prompt
 
 
 def _payload_for_system(system: str) -> dict:
     """Build a minimal valid JSON payload for whichever variable prompt is active."""
-    # Order matters: more specific / unique needles first.
     checks = [
         (
             "new_permanent_pacemaker",
@@ -38,16 +37,6 @@ def _payload_for_system(system: str) -> dict:
                 "information_sufficient": True,
                 "reasoning": "Kein CVA.",
                 "evidence_quotes": [],
-            },
-        ),
-        # note: V.a. cases should map to Unbekannt via prompt; covered in prompt text
-        (
-            "sternal_wound_infection",
-            {
-                "sternal_wound_infection": "Ja",
-                "information_sufficient": True,
-                "reasoning": "Mediastinitis dokumentiert.",
-                "evidence_quotes": ["Mediastinitis"],
             },
         ),
         (
@@ -115,8 +104,8 @@ def test_cardiology_smoke_task_loads():
     task = load_task("cardiology_smoke")
     assert task.name == "cardiology_smoke"
     assert task.language == "de"
-    assert len(task.variables) == 10
-    assert task.field_by_name("sternal_wound_infection").enum == ("Nein", "Ja", "Unbekannt")
+    assert len(task.variables) == 9
+    assert task.field_by_name("sternal_wound_infection") is None
     assert task.field_by_name("cerebrovascular_event").enum == (
         "Keine",
         "TIA",
@@ -124,6 +113,10 @@ def test_cardiology_smoke_task_loads():
         "Unbekannt",
     )
     assert task.field_by_name("reoperation_context").type == "string"
+    by_name = {v.name: v for v in task.variables}
+    assert by_name["new_permanent_pacemaker"].text_source == "verlegung"
+    assert by_name["postop_atrial_fibrillation"].text_source == "both"
+    assert by_name["multi_system_failure"].text_source == "verlegung"
 
 
 def test_per_variable_prompts_load():
@@ -168,20 +161,26 @@ def test_pipeline_one_call_per_variable(monkeypatch):
         REPORT_ID_KEY: "P001",
         REPORT_TEXT_KEY: (
             "[Diagnoseliste]\n\n"
-            "[#1]\nTiefe sternale Wundinfektion, Mediastinitis\n\n"
-            "[#2]\nRevisionseingriff wegen Infektion"
+            "[#1]\nRevisionseingriff wegen Infektion\n\n"
+            "[#2]\nKein neuer Schrittmacher"
+        ),
+        "diagnoseliste_text": (
+            "[Diagnoseliste]\n\n[#1]\nRevisionseingriff wegen Infektion"
+        ),
+        "verlegung_text": (
+            "[Verlegungsbericht]\n\n[diag]\nKein neuer Schrittmacher\n\n"
+            "[epikrise]\nStabil"
         ),
     }
     row, structured = pipe.run_report(report)
-    assert calls["n"] == 10
+    assert calls["n"] == 9
     assert row["status"] == "extracted"
-    assert row["sternal_wound_infection"] == "Ja"
     assert row["reoperation_required"] == "Ja"
     assert "Revisionseingriff" in row["reoperation_context"]
     assert structured["audit"]["per_variable_llm"] is True
-    assert len(structured["audit"]["llm"]["per_variable"]) == 10
-    assert structured["one_hot"]["sternal_wound_infection__Ja"] == 1
+    assert len(structured["audit"]["llm"]["per_variable"]) == 9
     assert structured["one_hot"]["cerebrovascular_event__Keine"] == 1
+    assert "sternal_wound_infection" not in row
 
 
 def test_pipeline_partial_when_some_variables_fail(monkeypatch):
@@ -197,13 +196,13 @@ def test_pipeline_partial_when_some_variables_fail(monkeypatch):
     pipe = ClinicalExtractionPipeline(load_task("cardiology_smoke"))
     report = {
         REPORT_ID_KEY: "P001",
-        REPORT_TEXT_KEY: (
-            "[Diagnoseliste]\n\n[#1]\nMediastinitis\n\n[#2]\nRevisionseingriff"
-        ),
+        REPORT_TEXT_KEY: "[Diagnoseliste]\n\n[#1]\nRevisionseingriff",
+        "diagnoseliste_text": "[Diagnoseliste]\n\n[#1]\nRevisionseingriff",
+        "verlegung_text": "[Verlegungsbericht]\n\n[diag]\nRevisionseingriff",
     }
     row, _ = pipe.run_report(report)
     assert row["status"] == "partial"
-    assert row["sternal_wound_infection"] == "Ja"
+    assert row["reoperation_required"] == "Ja"
     assert "new_permanent_pacemaker" in row["schema_errors"]
 
 
@@ -218,18 +217,36 @@ def test_full_text_fallback_still_runs_all_variables(monkeypatch):
     monkeypatch.setattr("src.llm.llm_extraction.time.sleep", lambda *_: None)
     pipe = ClinicalExtractionPipeline(load_task("cardiology_smoke"))
     report = {
-        REPORT_ID_KEY: "P003",
-        REPORT_TEXT_KEY: "[Diagnoseliste]\n\n[#1]\nElektive Bypass-Operation, stabil",
+        REPORT_ID_KEY: "P001",
+        REPORT_TEXT_KEY: "Keine bekannten Triggerworte in diesem Text.",
+        "diagnoseliste_text": "Keine bekannten Triggerworte in diesem Text.",
+        "verlegung_text": "Ebenfalls ohne Keywords.",
     }
-    row, structured = pipe.run_report(report)
-    assert called["n"] == 10
+    row, _ = pipe.run_report(report)
+    assert called["n"] == 9
     assert row["status"] == "extracted"
-    assert structured["audit"]["used_full_text_fallback"] is True
 
 
-def test_example_her_file_loads_three_patients():
-    from pathlib import Path
+def test_pipeline_uses_verlegung_source_for_pacemaker(monkeypatch):
+    seen = {"texts": []}
 
-    example = Path(__file__).resolve().parents[1] / "examples" / "her_diagnose_smoke.csv"
-    records = load_reports(example)
-    assert len(records) == 3
+    def spy(messages):
+        user = messages[1]["content"]
+        system = messages[0]["content"]
+        if "new_permanent_pacemaker" in system:
+            seen["texts"].append(user)
+        return json.dumps(_payload_for_system(system))
+
+    monkeypatch.setattr("src.llm.llm_extraction.call_llm", spy)
+    monkeypatch.setattr("src.llm.llm_extraction.time.sleep", lambda *_: None)
+    pipe = ClinicalExtractionPipeline(load_task("cardiology_smoke"))
+    report = {
+        REPORT_ID_KEY: "P001",
+        REPORT_TEXT_KEY: "[Diagnoseliste]\nNur Diagnose",
+        "diagnoseliste_text": "[Diagnoseliste]\nNur Diagnose",
+        "verlegung_text": "[Verlegungsbericht]\n[diag]\nSchrittmacher implantiert",
+    }
+    pipe.run_report(report)
+    assert seen["texts"]
+    assert "Schrittmacher implantiert" in seen["texts"][0]
+    assert "Nur Diagnose" not in seen["texts"][0]

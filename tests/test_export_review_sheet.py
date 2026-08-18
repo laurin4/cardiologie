@@ -11,7 +11,6 @@ def test_build_review_rows_flattens_quotes():
             {
                 "report_id": "123",
                 "status": "extracted",
-                "sternal_wound_infection": "Ja",
                 "reoperation_required": "Ja",
                 "cerebrovascular_event": "Keine",
                 "information_sufficient": "True",
@@ -22,8 +21,10 @@ def test_build_review_rows_flattens_quotes():
     )
     assert rows[0]["patient_id"] == "123"
     assert "Zitat A" in rows[0]["evidence_quotes"]
-    assert rows[0]["sternal_wound_infection"] == "Ja"
-    assert rows[0]["correct_swi"] == ""
+    assert rows[0]["reoperation_required"] == "Ja"
+    assert rows[0]["correct_reop"] == ""
+    assert "sternal_wound_infection" not in rows[0]
+    assert "correct_swi" not in rows[0]
 
 
 def test_write_csv(tmp_path: Path):
@@ -33,7 +34,6 @@ def test_write_csv(tmp_path: Path):
             {
                 "report_id": "1",
                 "status": "extracted",
-                "sternal_wound_infection": "Nein",
                 "reoperation_required": "Nein",
                 "information_sufficient": "True",
                 "evidence_quotes": "[]",
@@ -44,8 +44,9 @@ def test_write_csv(tmp_path: Path):
     write_csv(rows, out)
     text = out.read_text(encoding="utf-8-sig")
     assert "patient_id;status;" in text
-    assert "sternal_wound_infection" in text
+    assert "sternal_wound_infection" not in text
     assert "new_permanent_pacemaker" in text
+    assert "reoperation_required" in text
 
 
 def test_write_excel(tmp_path: Path):
@@ -55,7 +56,6 @@ def test_write_excel(tmp_path: Path):
             {
                 "report_id": "1",
                 "status": "extracted",
-                "sternal_wound_infection": "Nein",
                 "reoperation_required": "Nein",
                 "information_sufficient": "True",
                 "evidence_quotes": "[]",

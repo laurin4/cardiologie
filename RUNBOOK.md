@@ -87,15 +87,22 @@ Run controls:
 
 ## Cardiology smoke run (server)
 
-Place the sensitive HER Diagnose export under `data/raw/` as CSV (preferred). Then:
+Place sensitive HER exports under `data/raw/` as CSV (preferred):
+
+- `HER_Diagnose*` — Diagnoseliste (merged by PatientID)
+- `HER_Verlegungsbericht*` — latest Verlegungsbericht per patient (`berdat`),
+  sections `diag` / `epikrise` / `jetziges_leiden` / `prozedere`
+
+Then:
 
 ```bash
-# Both (or all) HER_Diagnose* files under data/raw/ — preferred:
+# Auto-discover Diagnose + Verlegung under data/raw/ — preferred:
 python3 -m src.pipeline.pipeline \
   --task cardiology_smoke \
   --max-reports 2
 
-# Or explicit paths (CSV and/or Excel), merged by PatientID:
+# Or explicit paths (CSV and/or Excel), Diagnose merged by PatientID;
+# Verlegung auto-attached from data/raw/ if not passed:
 python3 -m src.pipeline.pipeline \
   --task cardiology_smoke \
   --reports data/raw/HER_Diagnose_202601_202606.csv data/raw/HER_Diagnose_vor2026.xlsx \
@@ -103,18 +110,21 @@ python3 -m src.pipeline.pipeline \
 ```
 
 If you omit `--reports`, **all** `HER_Diagnose*` files in `data/raw/` are loaded
-and merged (one Diagnoseliste per PatientID).
+and merged (one Diagnoseliste per PatientID), and matching `HER_Verlegungsbericht*`
+are attached.
 
 Interpretability artifacts:
 - CSV columns `reasoning`, `evidence_quotes`, `stage_path`, plus one-hot `field__value` columns
-- JSONL `audit.stages` (preprocessing → rule_evidence → llm_extraction → …; **per variable** for cardiology_smoke)
+- JSONL `audit.stages` (preprocessing → rule_evidence → llm_extraction → …; **per variable** for cardiology_smoke; includes `text_source`)
 - JSONL `audit.llm.per_variable` (system/user prompts + raw model output for each variable)
 
 Cardiology smoke labels are mostly binary presence: `Nein | Ja | Unbekannt`
 (CVA: `Keine | TIA | Schlaganfall | Unbekannt`; Re-Op-/Re-Thorakotomie-Kontext: Freitext).
 Policy: **V.a. / Verdacht zählt nicht als Ja**; steht sonst nichts Bestätigtes
-→ **Unbekannt** (gilt für alle Klassifikations-Variablen, nicht nur Zirrhose).
-**10 LLM calls per patient** (one per variable). Start with `--max-reports 2`
+→ **Unbekannt** (gilt für alle Klassifikations-Variablen).
+**SWI (sternale Wundinfektion) is out of scope** for LLM extraction.
+**9 LLM calls per patient** (one per variable; text source is per variable:
+Verlegung only, Diagnoseliste only, or both). Start with `--max-reports 2`
 when testing.
 
 Prompts live under `prompts/cardiology_smoke_*.txt` and `prompts/cardiology_var_*.txt`.
@@ -154,7 +164,7 @@ python scripts/export_review_sheet.py --task cardiology_smoke --max-rows 20
 python scripts/export_review_sheet.py --task cardiology_smoke --max-rows 20 --format xlsx
 ```
 
-Open the CSV in Excel, fill `correct_swi` / `correct_reop` / `notes`.
+Open the CSV in Excel, fill `correct_reop` / `notes`.
 
 ## Tests
 

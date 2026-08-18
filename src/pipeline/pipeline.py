@@ -281,12 +281,15 @@ class ClinicalExtractionPipeline:
     def _run_variable_extractions(
         self,
         *,
-        text: str,
+        report: Dict[str, Any],
+        fallback_text: str,
         report_id: str,
         report_name: str,
         stages: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """One LLM call per VariableSpec; merge into a single field dict."""
+        from src.preprocessing.verlegung_loader import select_text_for_source
+
         merged = {f.name: f.default for f in self.task.fields}
         schema_errors: List[str] = []
         reason_parts: List[str] = []
@@ -303,15 +306,20 @@ class ClinicalExtractionPipeline:
         llm_text_len = 0
         evidence_flags: Dict[str, bool] = {}
         reduction_methods: List[str] = []
-        original_len = len(text)
+        original_len = len(fallback_text)
 
         for var in self.task.variables:
+            raw_var_text = select_text_for_source(report, getattr(var, "text_source", "report"))
+            text = clean_report_text(raw_var_text) if raw_var_text else ""
+            if not text and fallback_text:
+                text = fallback_text
             mini = _variable_as_task(self.task, var)
             evidence = extract_rule_evidence(text, mini)
             stages.append(
                 {
                     "stage": "rule_evidence",
                     "variable": var.name,
+                    "text_source": getattr(var, "text_source", "report"),
                     "action": "extract_rule_evidence",
                     "reduction_method": evidence["reduction_method"],
                     "keyword_hits_count": evidence["keyword_hits_count"],
@@ -320,6 +328,7 @@ class ClinicalExtractionPipeline:
                     "evidence_flags": evidence["evidence_flags"],
                     "snippet_count": len(evidence["evidence_snippets"]),
                     "llm_input_chars": evidence["llm_report_text_length"],
+                    "source_text_chars": len(text),
                 }
             )
             keyword_hits += int(evidence["keyword_hits_count"] or 0)
@@ -433,7 +442,8 @@ class ClinicalExtractionPipeline:
 
         if self.task.variables:
             multi = self._run_variable_extractions(
-                text=text,
+                report=report,
+                fallback_text=text,
                 report_id=report_id,
                 report_name=report_name,
                 stages=stages,

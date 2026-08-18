@@ -1,12 +1,11 @@
 {
   "task": "cardiology_smoke",
-  "description": "Kardiologie Diagnoseliste: mehrere Variablen, je eigene LLM-Abfrage. V.a./Verdacht → Unbekannt.",
+  "description": "Kardiologie Diagnoseliste + Verlegungsbericht: mehrere Variablen, je eigene LLM-Abfrage und Textquelle. SWI out of scope. V.a./Verdacht → Unbekannt.",
   "language": "de",
   "fields": [
     "new_permanent_pacemaker",
     "postop_atrial_fibrillation",
     "cerebrovascular_event",
-    "sternal_wound_infection",
     "reoperation_required",
     "reoperation_context",
     "multi_system_failure",
@@ -17,7 +16,19 @@
     "reasoning",
     "evidence_quotes"
   ],
+  "text_sources": {
+    "new_permanent_pacemaker": "verlegung",
+    "postop_atrial_fibrillation": "both",
+    "cerebrovascular_event": "both",
+    "reoperation_required": "both (interim; final: structured OP)",
+    "reoperation_context": "both (interim)",
+    "multi_system_failure": "verlegung",
+    "rethoracotomy": "verlegung (interim; final: Opsbericht)",
+    "rethoracotomy_context": "verlegung (interim)",
+    "liver_cirrhosis": "both (interim; final: Eintrittsbericht / Child-Pugh)"
+  },
   "policy": {
-    "suspicion_only": "V.a./Verdacht is not positive evidence for Ja; if nothing else confirmed → Unbekannt (all classification variables)"
+    "suspicion_only": "V.a./Verdacht is not positive evidence for Ja; if nothing else confirmed → Unbekannt (all classification variables)",
+    "swi": "sternal wound infection is out of scope for LLM extraction"
   }
 }
