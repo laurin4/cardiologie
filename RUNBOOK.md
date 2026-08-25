@@ -90,8 +90,9 @@ Run controls:
 Place sensitive HER exports under `data/raw/` as CSV (preferred):
 
 - `HER_Diagnose*` — Diagnoseliste (merged by PatientID)
-- `HER_Verlegungsbericht*` — latest Verlegungsbericht per patient (`berdat`),
-  sections `diag` / `epikrise` / `jetziges_leiden` / `prozedere`
+- `HER_Verlegungsbericht*` — latest Verlegungsbericht per **FallNummer** (`berdat`),
+  sections `diag` / `epikrise` / `jetziges_leiden` / `prozedere`; joined onto
+  Diagnoseliste patients via matching FallNummer
 
 Then:
 
@@ -168,13 +169,14 @@ Open the CSV in Excel, fill `correct_reop` / `notes`.
 
 ### Check Diagnoseliste ↔ Verlegung join
 
-Before a run (or if SM/MOV look empty), verify PatientID/`patnr` overlap:
+Before a run (or if SM/MOV look empty), verify **FallNummer** overlap:
 
 ```bash
 python3 scripts/check_verlegung_join.py
 ```
 
-Prints match rate and sample IDs. Exit code `2` if overlap is 0 (merge would be silent empty).
+Prints FallNummer match rate (primary) and PatientID/`patnr` for reference.
+Exit code `2` if FallNummer overlap is 0 (merge would be silent empty).
 Excel-style IDs (`12345.0`) are normalized to `12345`.
 
 ## Tests

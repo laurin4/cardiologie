@@ -177,19 +177,23 @@ def _normalize_sources(source: SourceArg) -> List[Path]:
 
 
 def _attach_verlegung(records: List[dict], verlegung_paths: Sequence[Path]) -> List[dict]:
-    """Merge latest Verlegungsbericht text onto Diagnoseliste patient records."""
+    """Merge latest Verlegungsbericht onto Diagnoseliste records via FallNummer."""
     if not verlegung_paths:
         return records
     from src.preprocessing.verlegung_loader import (
         VERLEGUNG_TEXT_KEY,
-        load_verlegung_by_patient,
+        load_verlegung_by_fall,
+        pick_verlegung_for_falls,
     )
 
-    by_patient = load_verlegung_by_patient(verlegung_paths)
+    by_fall = load_verlegung_by_fall(verlegung_paths)
     n_hit = 0
+    n_with_falls = 0
     for rec in records:
-        pid = normalize_str(rec.get("patient_id") or rec.get(REPORT_ID_KEY) or "")
-        info = by_patient.get(pid)
+        falls = rec.get("fall_nummers") or []
+        if falls:
+            n_with_falls += 1
+        info = pick_verlegung_for_falls(by_fall, falls)
         if not info:
             rec.setdefault(VERLEGUNG_TEXT_KEY, "")
             continue
@@ -201,15 +205,17 @@ def _attach_verlegung(records: List[dict], verlegung_paths: Sequence[Path]) -> L
         rec["source_files"] = f"{src}; {extra}" if src else extra
         rec["input_kind"] = "patient_diagnoseliste+verlegung"
     LOGGER.info(
-        "Attached Verlegungsbericht to %d / %d patients (%d verlegung patients available)",
+        "Attached Verlegungsbericht via FallNummer to %d / %d patients "
+        "(%d patients with FallNummer; %d Verlegung FallNummer(n) available)",
         n_hit,
         len(records),
-        len(by_patient),
+        n_with_falls,
+        len(by_fall),
     )
-    if records and n_hit == 0 and by_patient:
+    if records and n_hit == 0 and by_fall:
         LOGGER.warning(
-            "Verlegungsbericht join matched 0 patients. Check PatientID vs patnr "
-            "(formats / leading zeros / Excel .0). Run: "
+            "Verlegungsbericht FallNummer join matched 0 patients. "
+            "Cohorts may not overlap (e.g. Verlegung only 2025/2026). Run: "
             "python3 scripts/check_verlegung_join.py"
         )
     return records
@@ -295,25 +301,27 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
         return _attach_verlegung(records, attach)
 
     if verlegung_paths and not her_paths:
-        # Verlegung-only: synthesize patient records from Verlegung text.
+        # Verlegung-only: one record per FallNummer (latest berdat).
         from src.preprocessing.verlegung_loader import (
             VERLEGUNG_TEXT_KEY,
-            load_verlegung_by_patient,
+            load_verlegung_by_fall,
         )
 
-        by_patient = load_verlegung_by_patient(verlegung_paths)
+        by_fall = load_verlegung_by_fall(verlegung_paths)
         records = []
-        for i, (pid, info) in enumerate(by_patient.items()):
+        for i, (fall, info) in enumerate(by_fall.items()):
             text = info.get(VERLEGUNG_TEXT_KEY, "")
+            clean = {k: v for k, v in info.items() if not str(k).startswith("_")}
             records.append(
                 {
-                    REPORT_ID_KEY: pid,
+                    REPORT_ID_KEY: fall,
                     REPORT_TEXT_KEY: text,
                     "diagnoseliste_text": "",
-                    SOURCE_ROW_ID_COL: f"patient_{i}",
-                    "patient_id": pid,
+                    SOURCE_ROW_ID_COL: f"fall_{i}",
+                    "patient_id": clean.get("verlegung_patnr") or fall,
+                    "fall_nummers": [fall],
                     "input_kind": "patient_verlegung",
-                    **info,
+                    **clean,
                 }
             )
         return records

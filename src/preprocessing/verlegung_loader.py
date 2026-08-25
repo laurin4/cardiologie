@@ -6,7 +6,9 @@ Expected columns (semicolon CSV / Excel):
   patnr, fallnr, berdat, bertyp, ber, name,
   diag, epikrise, jetziges_leiden, prozedere
 
-Produces one record per patient: the **latest** Verlegungsbericht by ``berdat``,
+Join key to Diagnoseliste: **FallNummer** / ``fallnr`` (clinic guidance).
+
+Produces one record per FallNummer: the **latest** Verlegungsbericht by ``berdat``,
 with section-labelled text from diag / epikrise / jetziges_leiden / prozedere.
 """
 
@@ -25,6 +27,7 @@ PathLike = Union[str, Path]
 LOGGER = logging.getLogger(__name__)
 
 PATIENT_ALIASES = ("patnr", "PatientID", "PatientenID", "patient_id", "patientenid")
+FALL_ALIASES = ("FallNummer", "fallnr", "Fallnummer", "fall_nummer", "Fall Nr", "FallNr")
 BERDAT_ALIASES = ("berdat", "BerichtDatum", "bericht_datum")
 SECTION_COLS = ("diag", "epikrise", "jetziges_leiden", "prozedere")
 
@@ -46,21 +49,22 @@ def _find_column(df: pd.DataFrame, aliases: tuple[str, ...], label: str) -> str:
 
 
 def looks_like_her_verlegung_table(path: Path) -> bool:
-    """Heuristic: has patnr + at least one clinical section column."""
+    """Heuristic: has FallNummer (or patnr) + at least one clinical section column."""
     try:
         df = read_table(path)
     except Exception:
         return False
     cols = {str(c).strip().lower() for c in df.columns}
+    has_fall = any(a.lower() in cols for a in FALL_ALIASES)
     has_patient = any(a.lower() in cols for a in PATIENT_ALIASES)
     has_section = any(s.lower() in cols for s in SECTION_COLS)
-    return has_patient and has_section
+    return (has_fall or has_patient) and has_section
 
 
 def _format_verlegung_text(row: pd.Series) -> str:
     parts: List[str] = []
     meta_bits = []
-    for key in ("FallNummer", "fallnr", "OP_TerminNummer", "berdat", "bertyp"):
+    for key in ("FallNummer", "fallnr", "OP_TerminNummer", "berdat", "bertyp", "patnr"):
         if key in row.index:
             v = normalize_str(row.get(key, ""))
             if v:
@@ -70,7 +74,6 @@ def _format_verlegung_text(row: pd.Series) -> str:
         header += " " + " | ".join(meta_bits)
     parts.append(header)
     for col in SECTION_COLS:
-        # case-insensitive column resolve
         actual = None
         for c in row.index:
             if str(c).strip().lower() == col:
@@ -84,47 +87,63 @@ def _format_verlegung_text(row: pd.Series) -> str:
     return "\n\n".join(parts)
 
 
-def build_latest_verlegung_by_patient(df: pd.DataFrame) -> Dict[str, dict]:
+def build_latest_verlegung_by_fall(df: pd.DataFrame) -> Dict[str, dict]:
     """
-    Return ``{patient_id: {verlegung_text, berdat, fallnr, ...}}`` using the
-    latest ``berdat`` row per patient.
+    Return ``{fall_nummer: {verlegung_text, berdat, patnr, ...}}`` using the
+    latest ``berdat`` row per FallNummer.
     """
-    patient_col = _find_column(df, PATIENT_ALIASES, "patient id (patnr)")
+    fall_col = _find_column(df, FALL_ALIASES, "FallNummer / fallnr")
     try:
         berdat_col = _find_column(df, BERDAT_ALIASES, "berdat")
     except ValueError:
         berdat_col = None
-        LOGGER.warning("No berdat column; keeping last row per patient in file order.")
+        LOGGER.warning("No berdat column; keeping last row per FallNummer in file order.")
+
+    patient_col = None
+    try:
+        patient_col = _find_column(df, PATIENT_ALIASES, "patient id (patnr)")
+    except ValueError:
+        pass
 
     work = df.copy()
-    work["_patient_id"] = work[patient_col].map(normalize_str)
-    work = work[work["_patient_id"] != ""]
+    work["_fall_nummer"] = work[fall_col].map(normalize_str)
+    work = work[work["_fall_nummer"] != ""]
 
     if berdat_col:
         work["_berdat_sort"] = pd.to_datetime(
             work[berdat_col].map(normalize_str), errors="coerce"
         )
-        work = work.sort_values(["_patient_id", "_berdat_sort"], kind="stable", na_position="first")
+        work = work.sort_values(
+            ["_fall_nummer", "_berdat_sort"], kind="stable", na_position="first"
+        )
     else:
         work["_berdat_sort"] = pd.NaT
 
     out: Dict[str, dict] = {}
-    for pid, sub in work.groupby("_patient_id", sort=False):
+    for fall, sub in work.groupby("_fall_nummer", sort=False):
         row = sub.iloc[-1]  # latest after sort
         text = _format_verlegung_text(row)
-        out[str(pid)] = {
+        out[str(fall)] = {
             VERLEGUNG_TEXT_KEY: text,
             "verlegung_berdat": normalize_str(row.get(berdat_col, "")) if berdat_col else "",
-            "verlegung_fallnr": normalize_str(
-                row.get("fallnr", row.get("FallNummer", ""))
+            "verlegung_fallnr": str(fall),
+            "verlegung_patnr": (
+                normalize_str(row.get(patient_col, "")) if patient_col else ""
             ),
             "n_verlegung_rows": int(len(sub)),
+            "_berdat_sort": row.get("_berdat_sort"),
         }
     return out
 
 
-def load_verlegung_by_patient(paths: Sequence[PathLike]) -> Dict[str, dict]:
-    """Load one or more Verlegungsbericht files; keep latest berdat per patient."""
+# Backwards-compatible alias (old name keyed wrongly by patient).
+def build_latest_verlegung_by_patient(df: pd.DataFrame) -> Dict[str, dict]:
+    """Deprecated name: now indexes by FallNummer."""
+    return build_latest_verlegung_by_fall(df)
+
+
+def load_verlegung_by_fall(paths: Sequence[PathLike]) -> Dict[str, dict]:
+    """Load one or more Verlegungsbericht files; keep latest berdat per FallNummer."""
     frames: List[pd.DataFrame] = []
     resolved: List[Path] = []
     for raw in paths:
@@ -139,15 +158,52 @@ def load_verlegung_by_patient(paths: Sequence[PathLike]) -> Dict[str, dict]:
     if not frames:
         return {}
     combined = pd.concat(frames, ignore_index=True)
-    by_patient = build_latest_verlegung_by_patient(combined)
+    by_fall = build_latest_verlegung_by_fall(combined)
     LOGGER.info(
-        "Loaded latest Verlegungsbericht for %d patients from %d file(s) (%d raw rows): %s",
-        len(by_patient),
+        "Loaded latest Verlegungsbericht for %d FallNummer(n) from %d file(s) (%d raw rows): %s",
+        len(by_fall),
         len(resolved),
         len(combined),
         ", ".join(p.name for p in resolved),
     )
-    return by_patient
+    return by_fall
+
+
+def load_verlegung_by_patient(paths: Sequence[PathLike]) -> Dict[str, dict]:
+    """Deprecated name: now indexes by FallNummer."""
+    return load_verlegung_by_fall(paths)
+
+
+def pick_verlegung_for_falls(
+    by_fall: Dict[str, dict], fall_nummers: Sequence[str]
+) -> Optional[dict]:
+    """
+    Among FallNummern on a Diagnoseliste patient, pick the matching Verlegung
+    with the latest ``berdat`` (clinic: join on Fallnummer).
+    """
+    matches: List[dict] = []
+    for fall in fall_nummers:
+        key = normalize_str(fall)
+        if not key:
+            continue
+        info = by_fall.get(key)
+        if info:
+            matches.append(info)
+    if not matches:
+        return None
+    if len(matches) == 1:
+        chosen = dict(matches[0])
+    else:
+        def _sort_key(item: dict):
+            ts = item.get("_berdat_sort")
+            if ts is None or (isinstance(ts, float) and pd.isna(ts)):
+                return pd.Timestamp.min
+            return ts
+
+        chosen = dict(max(matches, key=_sort_key))
+    chosen.pop("_berdat_sort", None)
+    chosen["n_fall_matches"] = len(matches)
+    return chosen
 
 
 def discover_her_verlegung_paths(raw_dir: Optional[Path] = None) -> List[Path]:

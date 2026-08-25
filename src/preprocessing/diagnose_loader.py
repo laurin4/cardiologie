@@ -27,8 +27,12 @@ PathLike = Union[str, Path]
 LOGGER = logging.getLogger(__name__)
 
 PATIENT_ID_ALIASES = ("PatientID", "PatientenID", "patient_id", "patientenid")
+FALL_ALIASES = ("FallNummer", "fallnr", "Fallnummer", "fall_nummer", "Fall Nr", "FallNr")
 DIAGNOSE_VALUE_ALIASES = ("Diagnose_Value", "DiagnoseValue", "diagnose_value", "Diagnose")
 DIAGNOSE_TIME_ALIASES = ("Diagnose_Time", "DiagnoseTime", "diagnose_time")
+OP_TERMIN_ALIASES = ("OP_TerminNummer", "OP TerminNummer", "OPTerminNummer")
+OP_BEGIN_ALIASES = ("OP_BeginnZeit", "OPBeginnZeit")
+OP_END_ALIASES = ("OP_EndeZeit", "OPEndeZeit")
 
 
 def _find_column(df: pd.DataFrame, aliases: tuple[str, ...], label: str) -> str:
@@ -42,6 +46,13 @@ def _find_column(df: pd.DataFrame, aliases: tuple[str, ...], label: str) -> str:
         f"Missing required column for {label}. Tried {aliases}. "
         f"Found columns: {list(df.columns)}"
     )
+
+
+def _optional_col(df: pd.DataFrame, aliases: tuple[str, ...]) -> Optional[str]:
+    try:
+        return _find_column(df, aliases, aliases[0])
+    except ValueError:
+        return None
 
 
 def _format_entry(idx: int, value: str, time: str, meta: dict) -> str:
@@ -61,6 +72,7 @@ def build_patient_diagnoseliste_records(df: pd.DataFrame) -> List[dict]:
 
     ``report_text`` is a readable Diagnoseliste block containing every diagnosis
     entry for that patient (sorted by Diagnose_Time when available).
+    Also stores ``fall_nummers`` for Verlegungsbericht join on FallNummer.
     """
     patient_col = _find_column(df, PATIENT_ID_ALIASES, "patient id")
     value_col = _find_column(df, DIAGNOSE_VALUE_ALIASES, "diagnosis value")
@@ -69,6 +81,11 @@ def build_patient_diagnoseliste_records(df: pd.DataFrame) -> List[dict]:
     except ValueError:
         time_col = None
         LOGGER.warning("No Diagnose_Time column found; keeping source row order.")
+
+    fall_col = _optional_col(df, FALL_ALIASES)
+    op_termin_col = _optional_col(df, OP_TERMIN_ALIASES)
+    op_begin_col = _optional_col(df, OP_BEGIN_ALIASES)
+    op_end_col = _optional_col(df, OP_END_ALIASES)
 
     work = df.copy()
     work["_patient_id"] = work[patient_col].map(normalize_str)
@@ -86,12 +103,23 @@ def build_patient_diagnoseliste_records(df: pd.DataFrame) -> List[dict]:
     records: List[dict] = []
     for i, (pid, sub) in enumerate(work.groupby("_patient_id", sort=False)):
         entries: List[str] = []
+        fall_nummers: List[str] = []
+        seen_falls: set[str] = set()
         for j, (_, row) in enumerate(sub.iterrows(), start=1):
+            fall = normalize_str(row.get(fall_col, "")) if fall_col else ""
             meta = {
-                k: normalize_str(row.get(k, ""))
-                for k in ("FallNummer", "OP_TerminNummer", "OP_BeginnZeit", "OP_EndeZeit")
-                if k in sub.columns
+                "FallNummer": fall,
+                "OP_TerminNummer": (
+                    normalize_str(row.get(op_termin_col, "")) if op_termin_col else ""
+                ),
+                "OP_BeginnZeit": (
+                    normalize_str(row.get(op_begin_col, "")) if op_begin_col else ""
+                ),
+                "OP_EndeZeit": normalize_str(row.get(op_end_col, "")) if op_end_col else "",
             }
+            if fall and fall not in seen_falls:
+                seen_falls.add(fall)
+                fall_nummers.append(fall)
             entries.append(
                 _format_entry(j, normalize_str(row["_value"]), normalize_str(row["_time_raw"]), meta)
             )
@@ -103,6 +131,7 @@ def build_patient_diagnoseliste_records(df: pd.DataFrame) -> List[dict]:
                 "diagnoseliste_text": diagnoseliste,
                 SOURCE_ROW_ID_COL: f"patient_{i}",
                 "patient_id": str(pid),
+                "fall_nummers": fall_nummers,
                 "n_diagnosis_entries": len(entries),
                 "input_kind": "patient_diagnoseliste",
             }

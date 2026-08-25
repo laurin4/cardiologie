@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Diagnose Diagnoseliste ↔ Verlegungsbericht patient-ID join.
+Diagnose Diagnoseliste ↔ Verlegungsbericht FallNummer join.
 
 Reports overlap stats, ID format hints, and sample IDs that fail to match.
+Clinic join key: FallNummer (not PatientID/patnr).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.preprocessing.diagnose_loader import (
+    FALL_ALIASES as DIAG_FALL_ALIASES,
     PATIENT_ID_ALIASES,
     _find_column,
     looks_like_her_diagnose_table,
@@ -26,6 +28,7 @@ from src.preprocessing.diagnose_loader import (
 from src.preprocessing.report_identity import normalize_str
 from src.preprocessing.report_loader import discover_her_diagnose_paths
 from src.preprocessing.verlegung_loader import (
+    FALL_ALIASES as VERL_FALL_ALIASES,
     PATIENT_ALIASES,
     discover_her_verlegung_paths,
     looks_like_her_verlegung_table,
@@ -35,28 +38,23 @@ from src.utils.table_io import read_table
 
 def _collect_ids(
     paths: Sequence[Path], aliases: tuple[str, ...], label: str
-) -> Tuple[set[str], List[str], List[object], str, List[str]]:
-    """Return (normalized_ids, raw_as_str_samples, raw_values, column_name, file_names)."""
+) -> Tuple[set[str], List[str], str]:
     ids: set[str] = set()
     raw_samples: List[str] = []
-    raw_values: List[object] = []
     col_used = ""
-    files: List[str] = []
     for path in paths:
         df = read_table(path)
         col = _find_column(df, aliases, label)
         col_used = col
-        files.append(path.name)
         series = df[col]
         print(f"  {path.name}: col={col!r} dtype={series.dtype} rows={len(series)}")
         for v in series.head(8).tolist():
-            raw_values.append(v)
             raw_samples.append(repr(v))
         for v in series.tolist():
             nid = normalize_str(v)
             if nid:
                 ids.add(nid)
-    return ids, raw_samples, raw_values, col_used, files
+    return ids, raw_samples, col_used
 
 
 def _id_shape(s: str) -> str:
@@ -92,21 +90,45 @@ def _strip_leading_zeros(ids: set[str]) -> set[str]:
     return out
 
 
+def _print_join(name: str, left: set[str], right: set[str], sample: int) -> int:
+    overlap = left & right
+    only_left = left - right
+    only_right = right - left
+    print(f"\n=== Join stats ({name}) ===")
+    print(f"Diagnose unique:           {len(left)}")
+    print(f"Verlegung unique:          {len(right)}")
+    print(f"JOIN overlap (matched):    {len(overlap)}")
+    print(f"Only in Diagnose:          {len(only_left)}")
+    print(f"Only in Verlegung:         {len(only_right)}")
+    if left:
+        print(f"Match rate (of Diagnose):  {100.0 * len(overlap) / len(left):.1f}%")
+    print(
+        f"Overlap if strip leading 0: "
+        f"{len(_strip_leading_zeros(left) & _strip_leading_zeros(right))}"
+    )
+    n = max(0, sample)
+    if n and only_left:
+        print(f"\nSample Diagnose-only ({min(n, len(only_left))}):")
+        for x in sorted(only_left)[:n]:
+            print(f"  {x}")
+    if n and only_right:
+        print(f"\nSample Verlegung-only ({min(n, len(only_right))}):")
+        for x in sorted(only_right)[:n]:
+            print(f"  {x}")
+    if n and overlap:
+        print(f"\nSample matched ({min(n, len(overlap))}):")
+        for x in sorted(overlap)[:n]:
+            print(f"  {x}")
+    return len(overlap)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Check Diagnoseliste↔Verlegung ID join")
-    parser.add_argument(
-        "--diagnose",
-        nargs="*",
-        default=None,
-        help="HER Diagnose paths (default: all under data/raw/)",
+    parser = argparse.ArgumentParser(
+        description="Check Diagnoseliste↔Verlegung FallNummer join"
     )
-    parser.add_argument(
-        "--verlegung",
-        nargs="*",
-        default=None,
-        help="HER Verlegung paths (default: all under data/raw/)",
-    )
-    parser.add_argument("--sample", type=int, default=15, help="Sample unmatched IDs to print")
+    parser.add_argument("--diagnose", nargs="*", default=None)
+    parser.add_argument("--verlegung", nargs="*", default=None)
+    parser.add_argument("--sample", type=int, default=15)
     args = parser.parse_args()
 
     diagnose_paths = (
@@ -132,66 +154,39 @@ def main() -> None:
         if not looks_like_her_verlegung_table(p):
             raise SystemExit(f"Not a Verlegung table: {p}")
 
-    print("=== Files / columns ===")
-    print("Diagnose:")
-    diag_ids, diag_raw, _, _, _ = _collect_ids(
+    print("=== Primary join key: FallNummer ===")
+    print("Diagnose FallNummer:")
+    diag_falls, diag_fall_raw, _ = _collect_ids(
+        diagnose_paths, DIAG_FALL_ALIASES, "FallNummer"
+    )
+    print("Verlegung FallNummer/fallnr:")
+    verl_falls, verl_fall_raw, _ = _collect_ids(
+        verlegung_paths, VERL_FALL_ALIASES, "FallNummer"
+    )
+    _print_format("Diagnose FallNummer", diag_falls, diag_fall_raw)
+    _print_format("Verlegung FallNummer", verl_falls, verl_fall_raw)
+    fall_overlap = _print_join("FallNummer", diag_falls, verl_falls, args.sample)
+
+    print("\n=== Reference only (not used for merge): PatientID vs patnr ===")
+    print("Diagnose PatientID:")
+    diag_ids, diag_raw, _ = _collect_ids(
         diagnose_paths, PATIENT_ID_ALIASES, "patient id"
     )
-    print("Verlegung:")
-    verl_ids, verl_raw, _, _, _ = _collect_ids(
-        verlegung_paths, PATIENT_ALIASES, "patnr"
-    )
-
+    print("Verlegung patnr:")
+    verl_ids, verl_raw, _ = _collect_ids(verlegung_paths, PATIENT_ALIASES, "patnr")
     _print_format("Diagnose PatientID", diag_ids, diag_raw)
     _print_format("Verlegung patnr", verl_ids, verl_raw)
+    _print_join("PatientID↔patnr (legacy)", diag_ids, verl_ids, min(5, args.sample))
 
-    overlap = diag_ids & verl_ids
-    only_diag = diag_ids - verl_ids
-    only_verl = verl_ids - diag_ids
-
-    # Heuristic: leading-zero mismatch
-    overlap_lstrip = _strip_leading_zeros(diag_ids) & _strip_leading_zeros(verl_ids)
-
-    print("\n=== Join stats ===")
-    print(f"Diagnose patients total:   {len(diag_ids)}")
-    print(f"Verlegung patients total:  {len(verl_ids)}")
-    print(f"JOIN overlap (matched):    {len(overlap)}")
-    print(f"Only in Diagnose:          {len(only_diag)}")
-    print(f"Only in Verlegung:         {len(only_verl)}")
-    if diag_ids:
-        print(f"Match rate (of Diagnose):  {100.0 * len(overlap) / len(diag_ids):.1f}%")
-    print(f"Overlap if strip leading 0: {len(overlap_lstrip)}")
-
-    n = max(0, args.sample)
-    if n and only_diag:
-        print(f"\nSample Diagnose IDs with NO Verlegung ({min(n, len(only_diag))}):")
-        for pid in sorted(only_diag)[:n]:
-            print(f"  {pid}")
-    if n and only_verl:
-        print(f"\nSample Verlegung IDs with NO Diagnose ({min(n, len(only_verl))}):")
-        for pid in sorted(only_verl)[:n]:
-            print(f"  {pid}")
-    if n and overlap:
-        print(f"\nSample matched IDs ({min(n, len(overlap))}):")
-        for pid in sorted(overlap)[:n]:
-            print(f"  {pid}")
-
-    if not overlap:
+    if not fall_overlap:
         print(
-            "\nWARNING: 0 overlap — Verlegung is NOT merged onto Diagnose patients "
-            "(empty verlegung_text; no hard pipeline error)."
+            "\nWARNING: 0 FallNummer overlap — Verlegung will NOT attach "
+            "(empty verlegung_text). Likely cohort mismatch "
+            "(e.g. Verlegung only 2025/2026 vs older Diagnose cases)."
         )
-        if overlap_lstrip:
-            print(
-                "HINT: stripping leading zeros would create overlap — ID padding mismatch."
-            )
-        else:
-            print(
-                "HINT: likely different cohorts OR different ID spaces "
-                "(PatientID vs patnr not the same key). Compare sample IDs above; "
-                "ask Jasmin/Rodney which key links the two exports."
-            )
         raise SystemExit(2)
+
+    print(f"\nOK: FallNummer overlap = {fall_overlap}")
 
 
 if __name__ == "__main__":
