@@ -104,9 +104,14 @@ def enrich_fall_keys_from_raw(
 
     n_filled = 0
     n_matched = 0
+    sample_miss: List[str] = []
     for row in result_rows:
         pid = normalize_str(row.get("patient_id") or row.get("report_id") or "")
         falls = by_patient.get(pid) or []
+        if not falls and pid:
+            # Retry after Excel-style normalization already applied; try int-strip.
+            if pid.isdigit():
+                falls = by_patient.get(str(int(pid))) or []
         if falls:
             row["fall_nummers"] = " | ".join(falls)
             n_filled += 1
@@ -122,14 +127,25 @@ def enrich_fall_keys_from_raw(
             if not _clean(row.get("verlegung_fallnr")):
                 row["verlegung_fallnr"] = ""
             row["verlegung_matched"] = "False"
+            if len(sample_miss) < 5:
+                sample_miss.append(f"{pid or '?'} falls={falls or '-'}")
 
-    LOGGER.info(
-        "Enriched FallNummer for %d / %d result rows (%d Verlegung matches) from %d Diagnose file(s)",
-        n_filled,
-        len(result_rows),
-        n_matched,
-        len(diag_paths),
+    msg = (
+        f"Enriched FallNummer for {n_filled}/{len(result_rows)} result rows "
+        f"({n_matched} Verlegung matches) from {len(diag_paths)} Diagnose file(s), "
+        f"{len(by_fall)} Verlegung FallNummer(n)"
     )
+    LOGGER.info(msg)
+    print(msg)
+    if n_matched == 0 and result_rows:
+        print(
+            "NOTE: 0 Verlegung matches among these result patients. "
+            "Your run likely took the first N Diagnose patients, who often have "
+            "no overlapping FallNummer. Re-run with --require-verlegung, or "
+            "spot-check Diagnoseliste-only until then."
+        )
+        if sample_miss:
+            print("Sample unmatched:", "; ".join(sample_miss))
     return result_rows
 
 

@@ -667,6 +667,7 @@ def run(
     max_reports: Optional[int] = MAX_REPORTS,
     retry_failed: bool = False,
     llm_timeout: Optional[int] = None,
+    require_verlegung: bool = False,
 ) -> Path:
     """
     Run the pipeline for *task_name* and write CSV + JSONL results.
@@ -674,6 +675,8 @@ def run(
     ``source`` may be one path or several HER Diagnose files (merged by PatientID).
     ``retry_failed=True`` re-runs only rows with ``status=failed`` from an existing
     results CSV and merges them back (successful rows are kept).
+    ``require_verlegung=True`` keeps only patients with a FallNummer Verlegung match
+    (apply before ``max_reports``).
     """
     _apply_llm_timeout(llm_timeout)
 
@@ -681,6 +684,15 @@ def run(
     pipeline = ClinicalExtractionPipeline(task)
 
     reports = load_reports(source)
+    if require_verlegung:
+        from src.preprocessing.report_loader import filter_reports_with_verlegung
+
+        reports = filter_reports_with_verlegung(reports)
+        if not reports:
+            raise SystemExit(
+                "No patients with Verlegung FallNummer match. "
+                "Check data/raw/ and run: python3 scripts/check_verlegung_join.py"
+            )
     if max_reports is not None:
         reports = reports[:max_reports]
 
@@ -861,6 +873,14 @@ def main() -> None:
         default=None,
         help="Override LLM_TIMEOUT seconds for this run (useful with --retry-failed).",
     )
+    parser.add_argument(
+        "--require-verlegung",
+        action="store_true",
+        help=(
+            "Only process patients with a FallNummer match to Verlegungsbericht "
+            "(filter before --max-reports)."
+        ),
+    )
     args = parser.parse_args()
 
     from configs.config import parse_max_reports_env
@@ -884,6 +904,7 @@ def main() -> None:
         max_reports=max_reports,
         retry_failed=args.retry_failed,
         llm_timeout=args.llm_timeout,
+        require_verlegung=args.require_verlegung,
     )
 
 

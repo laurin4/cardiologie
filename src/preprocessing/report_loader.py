@@ -221,6 +221,19 @@ def _attach_verlegung(records: List[dict], verlegung_paths: Sequence[Path]) -> L
     return records
 
 
+def filter_reports_with_verlegung(records: List[dict]) -> List[dict]:
+    """Keep only patient records that already have non-empty ``verlegung_text``."""
+    from src.preprocessing.verlegung_loader import VERLEGUNG_TEXT_KEY
+
+    kept = [r for r in records if str(r.get(VERLEGUNG_TEXT_KEY) or "").strip()]
+    LOGGER.info(
+        "require-verlegung: kept %d / %d patients with FallNummer Verlegung match",
+        len(kept),
+        len(records),
+    )
+    return kept
+
+
 def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
     """
     Load reports from *source*.

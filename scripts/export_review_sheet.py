@@ -48,6 +48,11 @@ def main() -> None:
         action="store_true",
         help="Do not look up FallNummer from data/raw/ HER files",
     )
+    parser.add_argument(
+        "--only-verlegung-matched",
+        action="store_true",
+        help="After enrich, keep only rows with verlegung_matched=True",
+    )
     args = parser.parse_args()
 
     try:
@@ -64,14 +69,27 @@ def main() -> None:
         raise SystemExit(f"Results not found: {results_path}")
 
     rows = load_result_rows(results_path)
+    if not args.no_enrich_fall:
+        rows = enrich_fall_keys_from_raw(rows)
+
+    if args.only_verlegung_matched:
+        rows = [
+            r
+            for r in rows
+            if str(r.get("verlegung_matched", "")).strip().lower() in ("true", "1", "yes")
+        ]
+        print(f"Filtered to {len(rows)} Verlegung-matched rows")
+        if not rows:
+            raise SystemExit(
+                "No Verlegung-matched patients in this results file. "
+                "Re-run pipeline with: --require-verlegung --max-reports 15"
+            )
+
     if args.max_rows is not None and args.max_rows > 0 and len(rows) > args.max_rows:
         import random
 
         rng = random.Random(args.seed)
         rows = rng.sample(rows, args.max_rows)
-
-    if not args.no_enrich_fall:
-        rows = enrich_fall_keys_from_raw(rows)
 
     review_rows = build_review_rows(rows)
     base = Path(args.out) if args.out else Path("outputs/evaluation") / f"{args.task}_review"
