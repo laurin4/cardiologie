@@ -58,6 +58,10 @@ _RETRYABLE_STATUSES = frozenset({STATUS_FAILED, STATUS_PARTIAL})
 
 BASE_FIELDS = [
     "report_id",
+    "patient_id",
+    "fall_nummers",
+    "verlegung_fallnr",
+    "verlegung_matched",
     "source_row_id",
     "report_name",
     "status",
@@ -540,8 +544,21 @@ class ClinicalExtractionPipeline:
             else evidence_quotes
         )
 
+        patient_id = str(report.get("patient_id") or report_id or "").strip()
+        falls_raw = report.get("fall_nummers") or []
+        if isinstance(falls_raw, str):
+            fall_nummers_csv = falls_raw
+        else:
+            fall_nummers_csv = " | ".join(str(x) for x in falls_raw if str(x).strip())
+        verlegung_fallnr = str(report.get("verlegung_fallnr") or "").strip()
+        verlegung_matched = bool(str(report.get("verlegung_text") or "").strip())
+
         row: Dict[str, Any] = {
             "report_id": report_id,
+            "patient_id": patient_id,
+            "fall_nummers": fall_nummers_csv,
+            "verlegung_fallnr": verlegung_fallnr,
+            "verlegung_matched": _bool_csv(verlegung_matched),
             "source_row_id": source_row_id,
             "report_name": report_name,
             "status": status,
@@ -586,7 +603,13 @@ class ClinicalExtractionPipeline:
                 "per_variable_llm": bool(self.task.variables),
                 "input_metadata": {
                     k: report.get(k)
-                    for k in ("patient_id", "n_diagnosis_entries", "input_kind")
+                    for k in (
+                        "patient_id",
+                        "fall_nummers",
+                        "verlegung_fallnr",
+                        "n_diagnosis_entries",
+                        "input_kind",
+                    )
                     if k in report
                 },
             },

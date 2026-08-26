@@ -10,6 +10,10 @@ def test_build_review_rows_flattens_quotes():
         [
             {
                 "report_id": "123",
+                "patient_id": "123",
+                "fall_nummers": "F9 | F10",
+                "verlegung_fallnr": "F9",
+                "verlegung_matched": "True",
                 "status": "extracted",
                 "reoperation_required": "Ja",
                 "cerebrovascular_event": "Keine",
@@ -20,6 +24,9 @@ def test_build_review_rows_flattens_quotes():
         ]
     )
     assert rows[0]["patient_id"] == "123"
+    assert rows[0]["fall_nummers"] == "F9 | F10"
+    assert rows[0]["verlegung_fallnr"] == "F9"
+    assert rows[0]["verlegung_matched"] == "True"
     assert "Zitat A" in rows[0]["evidence_quotes"]
     assert rows[0]["reoperation_required"] == "Ja"
     assert rows[0]["correct_reop"] == ""
@@ -33,6 +40,10 @@ def test_write_csv(tmp_path: Path):
         [
             {
                 "report_id": "1",
+                "patient_id": "1",
+                "fall_nummers": "F1",
+                "verlegung_fallnr": "F1",
+                "verlegung_matched": "True",
                 "status": "extracted",
                 "reoperation_required": "Nein",
                 "information_sufficient": "True",
@@ -43,10 +54,11 @@ def test_write_csv(tmp_path: Path):
     )
     write_csv(rows, out)
     text = out.read_text(encoding="utf-8-sig")
-    assert "patient_id;status;" in text
+    assert "patient_id;fall_nummers;verlegung_fallnr;verlegung_matched;status;" in text
     assert "sternal_wound_infection" not in text
     assert "new_permanent_pacemaker" in text
     assert "reoperation_required" in text
+    assert "F1" in text
 
 
 def test_write_excel(tmp_path: Path):

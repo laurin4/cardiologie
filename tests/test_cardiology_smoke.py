@@ -171,10 +171,17 @@ def test_pipeline_one_call_per_variable(monkeypatch):
             "[Verlegungsbericht]\n\n[diag]\nKein neuer Schrittmacher\n\n"
             "[epikrise]\nStabil"
         ),
+        "patient_id": "P001",
+        "fall_nummers": ["F100", "F200"],
+        "verlegung_fallnr": "F100",
     }
     row, structured = pipe.run_report(report)
     assert calls["n"] == 9
     assert row["status"] == "extracted"
+    assert row["patient_id"] == "P001"
+    assert row["fall_nummers"] == "F100 | F200"
+    assert row["verlegung_fallnr"] == "F100"
+    assert row["verlegung_matched"] == "True"
     assert row["reoperation_required"] == "Ja"
     assert "Revisionseingriff" in row["reoperation_context"]
     assert structured["audit"]["per_variable_llm"] is True

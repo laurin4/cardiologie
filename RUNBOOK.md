@@ -166,6 +166,8 @@ python scripts/export_review_sheet.py --task cardiology_smoke --max-rows 20 --fo
 ```
 
 Open the CSV in Excel, fill `correct_reop` / `notes`.
+Review sheet includes `patient_id`, `fall_nummers`, `verlegung_fallnr`, and
+`verlegung_matched` so you can look up Diagnoseliste by patient and Verlegung by FallNummer.
 
 ### Check Diagnoseliste ↔ Verlegung join
 

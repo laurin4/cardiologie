@@ -20,6 +20,9 @@ CLINICAL_COLUMNS = [
 
 COLUMNS = [
     "patient_id",
+    "fall_nummers",
+    "verlegung_fallnr",
+    "verlegung_matched",
     "status",
     *CLINICAL_COLUMNS,
     "information_sufficient",
@@ -60,11 +63,14 @@ def load_result_rows(csv_path: Path) -> list[dict]:
 def build_review_rows(result_rows: list[dict]) -> list[dict]:
     out: list[dict] = []
     for row in result_rows:
-        patient_id = _clean(row.get("report_id")) or _clean(row.get("patient_id"))
+        patient_id = _clean(row.get("patient_id")) or _clean(row.get("report_id"))
         if not patient_id:
             patient_id = _clean(row.get("source_row_id")) or _clean(row.get("report_name"))
         item = {
             "patient_id": patient_id,
+            "fall_nummers": _clean(row.get("fall_nummers")),
+            "verlegung_fallnr": _clean(row.get("verlegung_fallnr")),
+            "verlegung_matched": _clean(row.get("verlegung_matched")),
             "status": _clean(row.get("status")),
             "information_sufficient": _clean(row.get("information_sufficient")),
             "evidence_quotes": _quotes_cell(row.get("evidence_quotes")),
@@ -116,6 +122,9 @@ def write_excel(rows: list[dict], out_path: Path) -> None:
 
     widths = {
         "patient_id": 14,
+        "fall_nummers": 18,
+        "verlegung_fallnr": 16,
+        "verlegung_matched": 12,
         "status": 12,
         "evidence_quotes": 40,
         "reasoning": 40,
