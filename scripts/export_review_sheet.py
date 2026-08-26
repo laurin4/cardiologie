@@ -15,6 +15,7 @@ from configs.config import PREDICTIONS_DIR
 from configs.tasks import available_tasks, load_task
 from src.evaluation.review_sheet import (
     build_review_rows,
+    enrich_fall_keys_from_raw,
     load_result_rows,
     write_csv,
     write_excel,
@@ -42,6 +43,11 @@ def main() -> None:
     )
     parser.add_argument("--max-rows", type=int, default=None, help="Limit number of patients")
     parser.add_argument("--seed", type=int, default=42, help="Shuffle seed when --max-rows is set")
+    parser.add_argument(
+        "--no-enrich-fall",
+        action="store_true",
+        help="Do not look up FallNummer from data/raw/ HER files",
+    )
     args = parser.parse_args()
 
     try:
@@ -64,6 +70,9 @@ def main() -> None:
         rng = random.Random(args.seed)
         rows = rng.sample(rows, args.max_rows)
 
+    if not args.no_enrich_fall:
+        rows = enrich_fall_keys_from_raw(rows)
+
     review_rows = build_review_rows(rows)
     base = Path(args.out) if args.out else Path("outputs/evaluation") / f"{args.task}_review"
 
@@ -77,7 +86,13 @@ def main() -> None:
         write_excel(review_rows, xlsx_path)
         written.append(xlsx_path)
 
+    n_matched = sum(1 for r in review_rows if r.get("verlegung_matched") == "True")
     print(f"Wrote {len(review_rows)} rows -> {', '.join(str(p) for p in written)}")
+    if not args.no_enrich_fall:
+        print(
+            f"FallNummer enriched from data/raw/; "
+            f"Verlegung matched: {n_matched}/{len(review_rows)}"
+        )
 
 
 if __name__ == "__main__":

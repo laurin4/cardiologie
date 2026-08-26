@@ -61,6 +61,30 @@ def test_write_csv(tmp_path: Path):
     assert "F1" in text
 
 
+def test_enrich_fall_keys_from_raw(tmp_path: Path):
+    from src.evaluation.review_sheet import enrich_fall_keys_from_raw
+
+    diag = tmp_path / "HER_Diagnose_test.csv"
+    verl = tmp_path / "HER_Verlegungsbericht_test.csv"
+    diag.write_text(
+        "PatientID;FallNummer;Diagnose_Value;Diagnose_Time\n"
+        "P001;F100;Test Diagnose;2024-01-01\n",
+        encoding="utf-8",
+    )
+    verl.write_text(
+        "patnr;FallNummer;berdat;diag;epikrise;jetziges_leiden;prozedere\n"
+        "X;F100;2024-06-01;SM ok;;;\n",
+        encoding="utf-8",
+    )
+    rows = [{"report_id": "P001", "status": "extracted"}]
+    enriched = enrich_fall_keys_from_raw(
+        rows, diagnose_paths=[diag], verlegung_paths=[verl]
+    )
+    assert enriched[0]["fall_nummers"] == "F100"
+    assert enriched[0]["verlegung_fallnr"] == "F100"
+    assert enriched[0]["verlegung_matched"] == "True"
+
+
 def test_write_excel(tmp_path: Path):
     out = tmp_path / "review.xlsx"
     rows = build_review_rows(

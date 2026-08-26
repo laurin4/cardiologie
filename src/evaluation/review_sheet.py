@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from pathlib import Path
+from typing import Dict, List, Optional, Sequence
 
 CLINICAL_COLUMNS = [
     "new_permanent_pacemaker",
@@ -32,6 +34,8 @@ COLUMNS = [
     "notes",
 ]
 
+LOGGER = logging.getLogger(__name__)
+
 
 def _clean(value: object) -> str:
     if value is None:
@@ -58,6 +62,75 @@ def _quotes_cell(raw: object) -> str:
 def load_result_rows(csv_path: Path) -> list[dict]:
     with open(csv_path, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def enrich_fall_keys_from_raw(
+    result_rows: list[dict],
+    *,
+    diagnose_paths: Optional[Sequence[Path]] = None,
+    verlegung_paths: Optional[Sequence[Path]] = None,
+) -> list[dict]:
+    """
+    Fill ``fall_nummers`` / ``verlegung_fallnr`` / ``verlegung_matched`` on
+    existing result rows by looking up HER raw tables (no LLM re-run).
+    """
+    from src.preprocessing.diagnose_loader import load_patient_diagnoseliste_many
+    from src.preprocessing.report_identity import normalize_str
+    from src.preprocessing.report_loader import (
+        discover_her_diagnose_paths,
+    )
+    from src.preprocessing.verlegung_loader import (
+        discover_her_verlegung_paths,
+        load_verlegung_by_fall,
+        pick_verlegung_for_falls,
+    )
+
+    diag_paths = list(diagnose_paths) if diagnose_paths is not None else discover_her_diagnose_paths()
+    verl_paths = (
+        list(verlegung_paths) if verlegung_paths is not None else discover_her_verlegung_paths()
+    )
+    if not diag_paths:
+        LOGGER.warning("No HER_Diagnose* under data/raw/; cannot enrich FallNummer.")
+        return result_rows
+
+    by_patient: Dict[str, List[str]] = {}
+    for rec in load_patient_diagnoseliste_many(diag_paths):
+        pid = normalize_str(rec.get("patient_id") or rec.get("report_id") or "")
+        if not pid:
+            continue
+        by_patient[pid] = list(rec.get("fall_nummers") or [])
+
+    by_fall = load_verlegung_by_fall(verl_paths) if verl_paths else {}
+
+    n_filled = 0
+    n_matched = 0
+    for row in result_rows:
+        pid = normalize_str(row.get("patient_id") or row.get("report_id") or "")
+        falls = by_patient.get(pid) or []
+        if falls:
+            row["fall_nummers"] = " | ".join(falls)
+            n_filled += 1
+        elif not _clean(row.get("fall_nummers")):
+            row["fall_nummers"] = ""
+
+        info = pick_verlegung_for_falls(by_fall, falls) if falls else None
+        if info:
+            row["verlegung_fallnr"] = str(info.get("verlegung_fallnr") or "")
+            row["verlegung_matched"] = "True"
+            n_matched += 1
+        else:
+            if not _clean(row.get("verlegung_fallnr")):
+                row["verlegung_fallnr"] = ""
+            row["verlegung_matched"] = "False"
+
+    LOGGER.info(
+        "Enriched FallNummer for %d / %d result rows (%d Verlegung matches) from %d Diagnose file(s)",
+        n_filled,
+        len(result_rows),
+        n_matched,
+        len(diag_paths),
+    )
+    return result_rows
 
 
 def build_review_rows(result_rows: list[dict]) -> list[dict]:

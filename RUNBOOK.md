@@ -165,6 +165,9 @@ python scripts/export_review_sheet.py --task cardiology_smoke --max-rows 20
 python scripts/export_review_sheet.py --task cardiology_smoke --max-rows 20 --format xlsx
 ```
 
+By default the export **enriches FallNummer** from `data/raw/` HER files
+(no LLM re-run). Use `--no-enrich-fall` to skip.
+
 Open the CSV in Excel, fill `correct_reop` / `notes`.
 Review sheet includes `patient_id`, `fall_nummers`, `verlegung_fallnr`, and
 `verlegung_matched` so you can look up Diagnoseliste by patient and Verlegung by FallNummer.
