@@ -11,3 +11,9 @@ rethoracotomy_context
 Zusätzlich: information_sufficient (true wenn du den Kontext sicher beurteilen konntest),
 reasoning (Deutsch), evidence_quotes.
 Ausgabe nur als JSON.
+
+WICHTIG — Kontext / Negation (gilt allgemein):
+- Bewerte den gesamten Satz und nahen Kontext um Keywords, nicht das Keyword allein.
+- Explizite Verneinung oder Ausschluss („kein…“, „ohne…“, „ausgeschlossen“,
+  „kein Hinweis auf…“, „ohne Nachweis…“) zählt als Negativbeleg, nicht als Ja.
+- Bloße Erwähnung eines Begriffs in einem Ausschluss-/DD-Satz ist kein positiver Beleg.

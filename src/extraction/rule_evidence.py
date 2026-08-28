@@ -40,8 +40,18 @@ def _int_env(name: str, default: int, minimum: int = 1) -> int:
     return max(minimum, v)
 
 
+def _window_sentences() -> int:
+    raw = os.environ.get("EVIDENCE_WINDOW_SENTENCES", "").strip()
+    if not raw:
+        return 2  # keyword ± 2 sentences so exclusions in the same/next sentence stay visible
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 2
+
+
 def _max_snippet_chars() -> int:
-    return _int_env("EVIDENCE_MAX_SNIPPET_CHARS", 400, minimum=80)
+    return _int_env("EVIDENCE_MAX_SNIPPET_CHARS", 600, minimum=80)
 
 
 def _max_snippets() -> int:
@@ -54,16 +64,6 @@ def _max_llm_chars() -> int:
 
 def _max_hits_per_keyword() -> int:
     return _int_env("EVIDENCE_MAX_HITS_PER_KEYWORD", 3, minimum=1)
-
-
-def _window_sentences() -> int:
-    raw = os.environ.get("EVIDENCE_WINDOW_SENTENCES", "").strip()
-    if not raw:
-        return 1
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return 1
 
 
 # --------------------------------------------------------------------------- #
@@ -443,7 +443,8 @@ def extract_rule_evidence(report_text: str, task: ExtractionTask) -> Dict[str, A
     evidence_flags = {name: False for name in group_names}
     for s in snippets:
         evidence_flags[str(s.get("evidence_group"))] = True
-    has_negation = any(role_by_group.get(n) == ROLE_NEGATION and v for n, v in evidence_flags.items())
+    # Pattern-based negations use group "__negation__" (not a task EvidenceGroup).
+    has_negation = any(str(s.get("role")) == ROLE_NEGATION for s in snippets)
     has_positive = llm_should_receive_evidence(snippets)
 
     method = METHOD_STRUCTURED if has_positive else METHOD_NO_EVIDENCE

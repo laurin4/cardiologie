@@ -386,6 +386,12 @@ _EVIDENCE_GROUPS = (
             "keine tia",
             "keine zirrhose",
             "keine leberzirrhose",
+            "ausgeschlossen",
+            "konnten ausgeschlossen",
+            "kein hinweis auf",
+            "ohne nachweis",
+            "keine demarkierte ischämie",
+            "keine blutung",
         ),
     ),
 )
@@ -399,6 +405,27 @@ _NEGATION_PATTERNS = (
     (r"\bkein(?:e|en)?\b.{0,40}?\bvorhofflimmern", "kein_vhf"),
     (r"\bkein(?:e|en)?\b.{0,40}?\bschlaganfall", "kein_schlaganfall"),
     (r"\bkein(?:e|en)?\b.{0,40}?\bzirrhose", "keine_zirrhose"),
+    # Exclusion of stroke / ICH / ischemia (common false-positive pattern)
+    (
+        r"(?:intrazerebrale\s+)?(?:blutung|ischämie|ischamie|schlaganfall|hirninfarkt).{0,50}?ausgeschlossen",
+        "cva_ausgeschlossen",
+    ),
+    (
+        r"ausgeschlossen.{0,50}?(?:intrazerebrale\s+)?(?:blutung|ischämie|ischamie|schlaganfall|hirninfarkt)",
+        "cva_ausgeschlossen_rev",
+    ),
+    (
+        r"kein(?:e|en)?\s+hinweis.{0,40}?(?:ischämie|ischamie|blutung|schlaganfall|hirninfarkt|embol)",
+        "kein_hinweis_cva",
+    ),
+    (
+        r"keine\s+demarkierte\s+isch",
+        "keine_demarkierte_ischaemie",
+    ),
+    (
+        r"ohne\s+nachweis.{0,40}?(?:ischämie|ischamie|blutung|schlaganfall)",
+        "ohne_nachweis_cva",
+    ),
 )
 
 _SECTION_MARKERS = (
