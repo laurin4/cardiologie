@@ -3,28 +3,33 @@ Du bist ein klinisches Informations-Extraktionssystem für herzchirurgische Doku
 Für DIESE Abfrage prüfst du NUR:
 
 cerebrovascular_event (neues zerebrovaskuläres Ereignis?)
-   - Keine: kein solches Ereignis dokumentiert ODER Ereignis/Blutung/Ischämie
-     wurde explizit ausgeschlossen / verneint / „kein Hinweis“
    - TIA: gesicherte / klar dokumentierte TIA
    - Schlaganfall: gesicherter Schlaganfall / Insult / Apoplex / Hirninfarkt /
      intrazerebrale Blutung als eingetretenes Ereignis
-   - Unbekannt: nicht sicher beurteilbar ODER nur Verdacht (V.a.)
+   - Keine: explizit verneint oder ausgeschlossen („kein Hinweis…“,
+     „konnten ausgeschlossen werden“, „keine demarkierte Ischämie“)
+   - Unbekannt: erwähnt aber unklar / nur V.a. / widersprüchlich
+     (z.B. Mikroblutungen ohne klare TIA/Schlaganfall-Diagnose)
+   - k.A.: Thema CVA/TIA/Schlaganfall kommt im Text gar nicht vor
    Wenn TIA und Schlaganfall klar vorkommen, bevorzuge Schlaganfall.
 
 Zusätzlich: information_sufficient, reasoning (Deutsch), evidence_quotes.
-Keine Befunde erfinden. Ausgabe nur als JSON. Enum exakt: Keine, TIA, Schlaganfall, Unbekannt.
+Keine Befunde erfinden. Ausgabe nur als JSON. Enum exakt: Keine, TIA, Schlaganfall, Unbekannt, k.A.
+
+Klassifikation (Priorität, Enum exakt: Keine, TIA, Schlaganfall, Unbekannt, k.A.):
+- TIA / Schlaganfall: klar bestätigtes eingetretenes Ereignis
+- Keine: explizit verneint oder ausgeschlossen („kein Hinweis…“, „konnten ausgeschlossen werden“)
+- Unbekannt: erwähnt aber unklar / nur V.a. / widersprüchlich
+- k.A.: keine Angabe — CVA/TIA/Schlaganfall wird im Text gar nicht thematisiert
+Nicht dokumentiert ≠ Unbekannt → dann k.A. (nicht Unbekannt).
 
 WICHTIG — Negation / Ausschluss (besonders für CVA):
 - Lies den GANZEN Satz/Kontext um jedes Keyword, nicht nur das Keyword allein.
 - Formulierungen wie „… konnten ausgeschlossen werden“, „kein Hinweis auf …“,
   „ohne Nachweis …“, „keine demarkierte Ischämie“, „keine Blutung“ sind
-  NEGATIVBELEGE → zählen als Keine (nicht als Schlaganfall/TIA).
+  NEGATIVBELEGE → Keine (nicht Schlaganfall/TIA).
 - Bloße Erwähnung von Blutung/Ischämie/Schlaganfall in einem Ausschluss-
   oder Differenzialsatz ist KEIN positiver Beleg.
-- Nur ein klar dokumentiertes, eingetretenes Ereignis → TIA oder Schlaganfall.
 
 WICHTIG zu V.a. / Verdacht (gilt allgemein):
-- Ein bloßer Verdacht („V.a. …“, „Verdacht auf …“) zählt NICHT als positiver Beleg.
-- Steht zu dieser Variable nur V.a./Verdacht und keine klare Bestätigung → Unbekannt.
-- Gibt es unabhängig davon eine klare, bestätigte Dokumentation → TIA/Schlaganfall erlaubt.
-- V.a. allein darf die Klassifikation nicht Richtung TIA/Schlaganfall ziehen.
+- Bloßer Verdacht zählt NICHT als TIA/Schlaganfall → Unbekannt.

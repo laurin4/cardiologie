@@ -111,6 +111,13 @@ def test_cardiology_smoke_task_loads():
         "TIA",
         "Schlaganfall",
         "Unbekannt",
+        "k.A.",
+    )
+    assert task.field_by_name("new_permanent_pacemaker").enum == (
+        "Nein",
+        "Ja",
+        "Unbekannt",
+        "k.A.",
     )
     assert task.field_by_name("reoperation_context").type == "string"
     by_name = {v.name: v for v in task.variables}

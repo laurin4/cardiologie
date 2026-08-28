@@ -1,6 +1,6 @@
 {
   "task": "cardiology_smoke",
-  "description": "Kardiologie Diagnoseliste + Verlegungsbericht: mehrere Variablen, je eigene LLM-Abfrage und Textquelle. SWI out of scope. V.a./Verdacht → Unbekannt.",
+  "description": "Kardiologie Diagnoseliste + Verlegungsbericht: mehrere Variablen, je eigene LLM-Abfrage und Textquelle. SWI out of scope. Labels Nein/Ja/Unbekannt/k.A.",
   "language": "de",
   "fields": [
     "new_permanent_pacemaker",
@@ -28,7 +28,10 @@
     "liver_cirrhosis": "both (interim; final: Eintrittsbericht / Child-Pugh)"
   },
   "policy": {
-    "suspicion_only": "V.a./Verdacht is not positive evidence for Ja; if nothing else confirmed → Unbekannt (all classification variables)",
+    "confirmed": "Ja / TIA / Schlaganfall",
+    "explicit_negation": "Nein / Keine",
+    "unclear_or_suspicion": "Unbekannt (incl. V.a. alone)",
+    "not_in_text": "k.A. (keine Angabe)",
     "swi": "sternal wound infection is out of scope for LLM extraction"
   }
 }

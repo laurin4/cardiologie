@@ -2,21 +2,25 @@
 Cardiology smoke extraction task (Diagnoseliste + Verlegungsbericht).
 
 Clinical variables (one LLM call each; one patient row):
-  - new_permanent_pacemaker      Nein|Ja|Unbekannt   ← Verlegungsbericht
-  - postop_atrial_fibrillation   Nein|Ja|Unbekannt   ← Verlegung + Diagnoseliste
-  - cerebrovascular_event        Keine|TIA|Schlaganfall|Unbekannt ← both
-  - reoperation_required         Nein|Ja|Unbekannt   ← interim text (final: strukturiert)
-  - reoperation_context          Freitext            ← interim text
-  - multi_system_failure         Nein|Ja|Unbekannt   ← Verlegungsbericht
-  - rethoracotomy                Nein|Ja|Unbekannt   ← interim Verlegung (final: Opsbericht)
-  - rethoracotomy_context        Freitext            ← interim
-  - liver_cirrhosis              Nein|Ja|Unbekannt   ← interim Diagnose±Verlegung
-                                                  (final: Eintrittsbericht / Child-Pugh)
+  - new_permanent_pacemaker      Nein|Ja|Unbekannt|k.A.   ← Verlegungsbericht
+  - postop_atrial_fibrillation   Nein|Ja|Unbekannt|k.A.   ← Verlegung + Diagnoseliste
+  - cerebrovascular_event        Keine|TIA|Schlaganfall|Unbekannt|k.A. ← both
+  - reoperation_required         Nein|Ja|Unbekannt|k.A.   ← interim text (final: strukturiert)
+  - reoperation_context          Freitext                 ← interim text
+  - multi_system_failure         Nein|Ja|Unbekannt|k.A.   ← Verlegungsbericht
+  - rethoracotomy                Nein|Ja|Unbekannt|k.A.   ← interim Verlegung (final: Opsbericht)
+  - rethoracotomy_context        Freitext                 ← interim
+  - liver_cirrhosis              Nein|Ja|Unbekannt|k.A.   ← interim Diagnose±Verlegung
+                                                       (final: Eintrittsbericht / Child-Pugh)
 
 SWI (sternal wound infection) is out of scope for LLM extraction.
 Fine severity (oberflächlich/tief, Child-Pugh, …) is deferred.
 Keywords/prompts/outputs: German; field names: English.
-Policy: V.a./Verdacht alone → Unbekannt (unless clearly confirmed elsewhere).
+Policy:
+  - Ja / TIA / Schlaganfall = bestätigt / behandelt
+  - Nein / Keine = explizit verneint oder ausgeschlossen
+  - Unbekannt = erwähnt aber unklar / V.a. / widersprüchlich
+  - k.A. = keine Angabe (Thema kommt im Text nicht vor)
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ from configs.tasks.base import (
     VariableSpec,
 )
 
-_YN_ENUM = ("Nein", "Ja", "Unbekannt")
+_YN_ENUM = ("Nein", "Ja", "Unbekannt", "k.A.")
 
 _YN_NORMALIZE: Dict[str, str] = {
     "No": "Nein",
@@ -52,9 +56,24 @@ _YN_NORMALIZE: Dict[str, str] = {
     "deep": "Ja",
     "Tief": "Ja",
     "tief": "Ja",
+    "k.A.": "k.A.",
+    "k.a.": "k.A.",
+    "kA": "k.A.",
+    "KA": "k.A.",
+    "keine Angabe": "k.A.",
+    "Keine Angabe": "k.A.",
+    "nicht im Bericht": "k.A.",
+    "Nicht im Bericht": "k.A.",
+    "nicht erwaehnt": "k.A.",
+    "nicht erwähnt": "k.A.",
+    "n.e.": "k.A.",
+    "absent": "k.A.",
+    "not mentioned": "k.A.",
+    "N/A": "k.A.",
+    "n/a": "k.A.",
 }
 
-_CVA_ENUM = ("Keine", "TIA", "Schlaganfall", "Unbekannt")
+_CVA_ENUM = ("Keine", "TIA", "Schlaganfall", "Unbekannt", "k.A.")
 _CVA_NORMALIZE: Dict[str, str] = {
     "None": "Keine",
     "none": "Keine",
@@ -78,6 +97,19 @@ _CVA_NORMALIZE: Dict[str, str] = {
     "unknown": "Unbekannt",
     "Unbekannt": "Unbekannt",
     "unbekannt": "Unbekannt",
+    "k.A.": "k.A.",
+    "k.a.": "k.A.",
+    "kA": "k.A.",
+    "KA": "k.A.",
+    "keine Angabe": "k.A.",
+    "Keine Angabe": "k.A.",
+    "nicht im Bericht": "k.A.",
+    "Nicht im Bericht": "k.A.",
+    "n.e.": "k.A.",
+    "absent": "k.A.",
+    "not mentioned": "k.A.",
+    "N/A": "k.A.",
+    "n/a": "k.A.",
 }
 
 _AUDIT_FIELDS = (
@@ -182,26 +214,27 @@ def _text_variable(
 
 _FIELD_PACEMAKER = _yn_field(
     "new_permanent_pacemaker",
-    "Neuer permanenter Schrittmacher im postoperativen Verlauf (Nein/Ja/Unbekannt).",
+    "Neuer permanenter Schrittmacher im postoperativen Verlauf (Nein/Ja/Unbekannt/k.A.).",
 )
 _FIELD_AF = _yn_field(
     "postop_atrial_fibrillation",
-    "Neu aufgetretenes postoperatives Vorhofflimmern (Nein/Ja/Unbekannt).",
+    "Neu aufgetretenes postoperatives Vorhofflimmern (Nein/Ja/Unbekannt/k.A.).",
 )
 _FIELD_CVA = SchemaField(
     name="cerebrovascular_event",
     type="enum",
     enum=_CVA_ENUM,
     required=True,
-    default="Keine",
+    default="Unbekannt",
     description=(
-        "Neues zerebrovaskuläres Ereignis: Keine / TIA / Schlaganfall / Unbekannt. "
-        "V.a./Verdacht allein zählt nicht als positiver Beleg → Unbekannt."
+        "Neues zerebrovaskuläres Ereignis: Keine / TIA / Schlaganfall / Unbekannt / k.A. "
+        "Keine = explizit verneint/ausgeschlossen; k.A. = Thema nicht im Text; "
+        "V.a. allein → Unbekannt."
     ),
 )
 _FIELD_REOP = _yn_field(
     "reoperation_required",
-    "Re-Operation erforderlich/durchgeführt (Nein/Ja/Unbekannt). "
+    "Re-Operation erforderlich/durchgeführt (Nein/Ja/Unbekannt/k.A.). "
     "Interim: Textquellen; final geplant über strukturierte OP-Daten (Rodney).",
 )
 _FIELD_REOP_CTX = SchemaField(
@@ -213,11 +246,11 @@ _FIELD_REOP_CTX = SchemaField(
 )
 _FIELD_MSF = _yn_field(
     "multi_system_failure",
-    "Multi-Organ-Versagen / Multi-system failure (Nein/Ja/Unbekannt).",
+    "Multi-Organ-Versagen / Multi-system failure (Nein/Ja/Unbekannt/k.A.).",
 )
 _FIELD_RETHOR = _yn_field(
     "rethoracotomy",
-    "Re-Thorakotomie durchgeführt (Nein/Ja/Unbekannt). "
+    "Re-Thorakotomie durchgeführt (Nein/Ja/Unbekannt/k.A.). "
     "Interim: Verlegungsbericht; final geplant über Operationsbericht.",
 )
 _FIELD_RETHOR_CTX = SchemaField(
@@ -229,9 +262,9 @@ _FIELD_RETHOR_CTX = SchemaField(
 )
 _FIELD_CIRRHOSIS = _yn_field(
     "liver_cirrhosis",
-    "Leberzirrhose dokumentiert (Nein/Ja/Unbekannt; ohne Child-Pugh). "
+    "Leberzirrhose dokumentiert (Nein/Ja/Unbekannt/k.A.; ohne Child-Pugh). "
     "Interim: Diagnoseliste±Verlegung; final: Eintrittsbericht. "
-    "V.a./Verdacht allein zählt nicht als positiver Beleg → Unbekannt.",
+    "V.a./Verdacht allein → Unbekannt; nicht erwähnt → k.A.",
 )
 
 _EVIDENCE_GROUPS = (
@@ -547,7 +580,7 @@ TASK = ExtractionTask(
     description=(
         "Kardiologie: Diagnoseliste + letzter Verlegungsbericht; "
         "je Variable eigene LLM-Abfrage und Textquelle; eine Ergebniszeile pro Patient. "
-        "SWI out of scope. V.a./Verdacht → Unbekannt."
+        "SWI out of scope. Labels: Ja/Nein/Unbekannt/k.A. (CVA: +Keine/TIA/Schlaganfall)."
     ),
     language="de",
     send_full_text_when_no_evidence=True,

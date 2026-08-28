@@ -119,10 +119,12 @@ Interpretability artifacts:
 - JSONL `audit.stages` (preprocessing → rule_evidence → llm_extraction → …; **per variable** for cardiology_smoke; includes `text_source`)
 - JSONL `audit.llm.per_variable` (system/user prompts + raw model output for each variable)
 
-Cardiology smoke labels are mostly binary presence: `Nein | Ja | Unbekannt`
-(CVA: `Keine | TIA | Schlaganfall | Unbekannt`; Re-Op-/Re-Thorakotomie-Kontext: Freitext).
-Policy: **V.a. / Verdacht zählt nicht als Ja**; steht sonst nichts Bestätigtes
-→ **Unbekannt** (gilt für alle Klassifikations-Variablen).
+Cardiology smoke labels: `Nein | Ja | Unbekannt | k.A.`
+(`k.A.` = keine Angabe / nicht im Text; `Unbekannt` = erwähnt aber unklar / V.a.).
+CVA: `Keine | TIA | Schlaganfall | Unbekannt | k.A.` (`Keine` = explizit verneint/ausgeschlossen).
+Re-Op-/Re-Thorakotomie-Kontext: Freitext.
+Policy: **V.a. / Verdacht** → **Unbekannt**; **Thema fehlt im Text** → **k.A.**;
+explizit verneint → **Nein**/**Keine**; bestätigt → **Ja**/TIA/Schlaganfall.
 **SWI (sternale Wundinfektion) is out of scope** for LLM extraction.
 **9 LLM calls per patient** (one per variable; text source is per variable:
 Verlegung only, Diagnoseliste only, or both). Start with `--max-reports 2`
