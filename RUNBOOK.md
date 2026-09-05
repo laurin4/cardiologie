@@ -173,8 +173,8 @@ Sequence on the server:
 
 | Dendrite column | Our field | Gold values → score class |
 |---|---|---|
-| `PM/ICD Implant` | `pacemaker` | `Ja (1)` / `Nein (0)`; collapse pred: `Neu`→Ja, `Kein`→Nein |
-| `Vorhofsarrhythmie postop` | `atrial_fibrillation` | same Ja/Nein collapse (`Neu`→Ja, `Kein`→Nein) |
+| `PM/ICD Implant` | `pacemaker` | `Ja (1)` / `Nein (0)`; collapse pred: `Neu`→Ja, `Kein`/`Schon vorhanden`→Nein |
+| `Vorhofsarrhythmie postop` | `atrial_fibrillation` | same Ja/Nein collapse (`Neu`→Ja, `Kein`/`Vorbestehend`→Nein) |
 | `Neue post-OP neurol. Funktionsstörung` | `cerebrovascular_event` | `Keine (0)`→Keine; `TIA … (1)`→TIA; `Dauerhafter Schlaganfall (2)`→Schlaganfall |
 | `Reoperationen` | `reoperation_required` (+ reasons later) | `(0)` keine → Nein; any other code → Ja (multi-label reasons) |
 | `Multisystem failure` | `multi_system_failure` | `Yes (1)` / `No (0)` / `Unknown (99)` |
@@ -182,7 +182,21 @@ Sequence on the server:
 
 **CVA score exclude:** `Paraparese (3)` / `Paraplegie (4)` (and combinations) — not classic CVA; skip row for CVA metrics.
 Empty Dendrite cells → missing (not Nein).
-Finer extraction enums (`Schon vorhanden`, `Vorbestehend`, `Unbekannt`, `k.A.`) stay in the pipeline; collapse only when scoring against Dendrite Ja/Nein.
+`Unbekannt` / `k.A.` predictions → excluded from metrics.
+Finer extraction enums stay in the pipeline; collapse only when scoring against Dendrite Ja/Nein.
+
+```bash
+# After a pipeline run (results CSV must exist):
+python3 scripts/score_dendrite.py \
+  --predictions outputs/extractions/cardiology_smoke_results.csv \
+  --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx"
+
+# Or auto-discover Dendrite* under data/raw/ and default results path:
+python3 scripts/score_dendrite.py
+```
+
+Writes `outputs/evaluation/dendrite_score.json` and `dendrite_score_pairs.csv`.
+Exit code `2` if FallNummer overlap with predictions is 0.
 
 ### Retry only failed rows (empty LLM / timeout)
 
