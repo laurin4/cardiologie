@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 CLINICAL_COLUMNS = [
-    "new_permanent_pacemaker",
-    "postop_atrial_fibrillation",
+    "pacemaker",
+    "atrial_fibrillation",
     "cerebrovascular_event",
     "reoperation_required",
     "reoperation_context",

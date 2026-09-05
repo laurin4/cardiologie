@@ -56,7 +56,8 @@ def test_write_csv(tmp_path: Path):
     text = out.read_text(encoding="utf-8-sig")
     assert "patient_id;fall_nummers;verlegung_fallnr;verlegung_matched;status;" in text
     assert "sternal_wound_infection" not in text
-    assert "new_permanent_pacemaker" in text
+    assert "pacemaker" in text
+    assert "atrial_fibrillation" in text
     assert "reoperation_required" in text
     assert "F1" in text
 

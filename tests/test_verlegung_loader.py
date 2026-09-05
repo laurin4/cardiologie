@@ -1,5 +1,7 @@
 """Tests for Verlegungsbericht loader and multi-source text selection."""
 
+from pathlib import Path
+
 import pandas as pd
 
 from src.preprocessing.verlegung_loader import (
@@ -84,7 +86,38 @@ def test_select_text_for_source_modes():
     assert select_text_for_source(report, "report") == "Diagnose Text"
 
 
-def test_select_text_falls_back_to_report_text():
-    report = {"report_text": "[Diagnoseliste]\nNur legacy"}
-    assert "Nur legacy" in select_text_for_source(report, "diagnoseliste")
-    assert select_text_for_source(report, "verlegung") == ""
+def test_latest_verlegung_accepts_ips_truncated_section_names():
+    """HER_IPS exports use jetztleid / procedere instead of full names."""
+    df = pd.DataFrame(
+        [
+            {
+                "patnr": "P1",
+                "FallNummer": "F100",
+                "berdat": "2025-06-01",
+                "diag": "Diagnose IPS",
+                "epikrise": "Epikrise IPS",
+                "jetztleid": "Jetztleid Text",
+                "procedere": "Procedere Text",
+            },
+        ]
+    )
+    by_fall = build_latest_verlegung_by_fall(df)
+    text = by_fall["F100"][VERLEGUNG_TEXT_KEY]
+    assert "[diag]" in text and "Diagnose IPS" in text
+    assert "[jetziges_leiden]" in text and "Jetztleid Text" in text
+    assert "[prozedere]" in text and "Procedere Text" in text
+
+
+def test_discover_her_ips_verlegung_paths(tmp_path: Path):
+    from src.preprocessing.verlegung_loader import discover_her_verlegung_paths
+
+    classic = tmp_path / "HER_Verlegungsbericht_old.csv"
+    ips = tmp_path / "HER_IPS_Verlegungsbericht_2025.xlsx"
+    classic.write_text("FallNummer;diag\nF1;x\n", encoding="utf-8")
+    ips.write_bytes(b"PK\x03\x04")  # minimal zip header; discovery only checks suffix/name
+    # write a real tiny excel via openpyxl/pandas if needed — discovery only needs filename
+    ips.write_bytes(b"")  # empty file still matches glob + suffix
+    found = discover_her_verlegung_paths(tmp_path)
+    names = {p.name for p in found}
+    assert "HER_Verlegungsbericht_old.csv" in names
+    assert "HER_IPS_Verlegungsbericht_2025.xlsx" in names

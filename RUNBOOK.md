@@ -87,12 +87,16 @@ Run controls:
 
 ## Cardiology smoke run (server)
 
-Place sensitive HER exports under `data/raw/` as CSV (preferred):
+Place sensitive HER exports under `data/raw/` as CSV/Excel (preferred):
 
 - `HER_Diagnose*` — Diagnoseliste (merged by PatientID)
-- `HER_Verlegungsbericht*` — latest Verlegungsbericht per **FallNummer** (`berdat`),
-  sections `diag` / `epikrise` / `jetziges_leiden` / `prozedere`; joined onto
+- `HER_Verlegungsbericht*` / `HER_IPS_Verlegungsbericht*` — latest Verlegungsbericht
+  per **FallNummer** (`berdat`); sections `diag` / `epikrise` /
+  `jetziges_leiden`|`jetztleid` / `prozedere`|`procedere`; joined onto
   Diagnoseliste patients via matching FallNummer
+- `HER_OPBericht*` — Operationsbericht (for Re-Thor / reasons; loader TBD)
+- Dendrite postop gold (`Dendrite postop data set_LLM_v1*`) — validation labels
+  (join via `FallNummer FID`)
 
 Then:
 
@@ -119,19 +123,66 @@ Interpretability artifacts:
 - JSONL `audit.stages` (preprocessing → rule_evidence → llm_extraction → …; **per variable** for cardiology_smoke; includes `text_source`)
 - JSONL `audit.llm.per_variable` (system/user prompts + raw model output for each variable)
 
-Cardiology smoke labels: `Nein | Ja | Unbekannt | k.A.`
-(`k.A.` = keine Angabe / nicht im Text; `Unbekannt` = erwähnt aber unklar / V.a.).
-CVA: `Keine | TIA | Schlaganfall | Unbekannt | k.A.` (`Keine` = explizit verneint/ausgeschlossen).
-Re-Op-/Re-Thorakotomie-Kontext: Freitext.
-Policy: **V.a. / Verdacht** → **Unbekannt**; **Thema fehlt im Text** → **k.A.**;
-explizit verneint → **Nein**/**Keine**; bestätigt → **Ja**/TIA/Schlaganfall.
-**SWI (sternale Wundinfektion) is out of scope** for LLM extraction.
-**9 LLM calls per patient** (one per variable; text source is per variable:
-Verlegung only, Diagnoseliste only, or both). Start with `--max-reports 2`
-when testing.
+### Variables and labels (`cardiology_smoke`)
 
-Prompts live under `prompts/cardiology_smoke_*.txt` and `prompts/cardiology_var_*.txt`.
+Nine LLM calls per patient (one per variable). Text source is per variable
+(Verlegung only, Diagnoseliste only, or both). Details:
+`configs/tasks/cardiology_smoke/task.py` and `schema.json`.
+
+| Field | Enum / type | Source |
+|---|---|---|
+| `pacemaker` | `Neu` \| `Schon vorhanden` \| `Kein` \| `Unbekannt` \| `k.A.` | Verlegung |
+| `atrial_fibrillation` | `Neu` \| `Vorbestehend` \| `Kein` \| `Unbekannt` \| `k.A.` | both |
+| `cerebrovascular_event` | `Keine` \| `TIA` \| `Schlaganfall` \| `Unbekannt` \| `k.A.` | both |
+| `reoperation_required` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | both (interim) |
+| `reoperation_context` | Freitext | both (interim) |
+| `multi_system_failure` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | Verlegung |
+| `rethoracotomy` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | Verlegung (interim) |
+| `rethoracotomy_context` | Freitext | Verlegung (interim) |
+| `liver_cirrhosis` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` (no Child-Pugh yet) | both (interim) |
+
+**Shared label policy**
+- Confirmed status → `Neu` / `TIA` / `Schlaganfall` / `Ja` / `Schon vorhanden` / `Vorbestehend` (field-specific)
+- Explicit negation → `Kein` / `Keine` / `Nein`
+- Mentioned but unclear / V.a. alone → `Unbekannt` (temporary pacemaker alone → `Unbekannt`, not `Neu`)
+- Topic not in text → `k.A.` (keine Angabe)
+
+**Out of scope / deferred (no enum yet)**
+- SWI (sternal wound infection) — not extracted by LLM
+- Child-Pugh for cirrhosis — when Eintrittsbericht / criteria exist
+- Structured Re-Op reason enums — interim stays Freitext context
+- Final Re-Op / Re-Thor from structured OP / Opsbericht when available
+
+Prompts: `prompts/cardiology_smoke_*.txt`, `prompts/cardiology_var_*.txt`.
 Keywords: `configs/tasks/cardiology_smoke/task.py`.
+Start with `--max-reports 2` when testing.
+
+### Next: new Verlegung data → run → validate
+
+Generic scoring: `src/evaluation/compare_groundtruth.py`, `metrics.py`.
+Dendrite gold format is known (`Label (Code)`); join key **`FallNummer FID`**.
+
+Sequence on the server:
+
+1. Place `HER_IPS_Verlegungsbericht*`, Diagnose, OP, Dendrite under `data/raw/`
+2. Confirm FallNummer join: `python3 scripts/check_verlegung_join.py`
+3. Run pipeline (`cardiology_smoke`), export review sheet
+4. Score against Dendrite (start with `pacemaker` + `atrial_fibrillation` + CVA)
+
+**Dendrite → our fields (score mapping)**
+
+| Dendrite column | Our field | Gold values → score class |
+|---|---|---|
+| `PM/ICD Implant` | `pacemaker` | `Ja (1)` / `Nein (0)`; collapse pred: `Neu`→Ja, `Kein`→Nein |
+| `Vorhofsarrhythmie postop` | `atrial_fibrillation` | same Ja/Nein collapse (`Neu`→Ja, `Kein`→Nein) |
+| `Neue post-OP neurol. Funktionsstörung` | `cerebrovascular_event` | `Keine (0)`→Keine; `TIA … (1)`→TIA; `Dauerhafter Schlaganfall (2)`→Schlaganfall |
+| `Reoperationen` | `reoperation_required` (+ reasons later) | `(0)` keine → Nein; any other code → Ja (multi-label reasons) |
+| `Multisystem failure` | `multi_system_failure` | `Yes (1)` / `No (0)` / `Unknown (99)` |
+| `Sternale Wundinfektion` | — | gold only; LLM out of scope (`Oberflächlich`/`Tief`) |
+
+**CVA score exclude:** `Paraparese (3)` / `Paraplegie (4)` (and combinations) — not classic CVA; skip row for CVA metrics.
+Empty Dendrite cells → missing (not Nein).
+Finer extraction enums (`Schon vorhanden`, `Vorbestehend`, `Unbekannt`, `k.A.`) stay in the pipeline; collapse only when scoring against Dendrite Ja/Nein.
 
 ### Retry only failed rows (empty LLM / timeout)
 

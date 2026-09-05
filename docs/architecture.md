@@ -86,5 +86,11 @@ dependent field sets `manual_review_candidate=True`.
 ## Evaluation
 
 `src/evaluation/compare_groundtruth.py` aligns predictions with ground-truth by
-`report_id` and scores each field: binary metrics for boolean fields, accuracy +
-confusion for enum/categorical fields, plus an exact-match rate.
+`report_id` (or another id key) and scores each field: binary metrics for
+boolean fields, accuracy + confusion for enum/categorical fields, plus an
+exact-match rate.
+
+For cardiology: wait until validation data arrives, then map gold columns onto
+task field names/enums and call `compare`. Do not assume label wording until the
+file is inspected. Operational sequence (new Verlegung → FallNummer merge →
+pipeline → score) is documented in `RUNBOOK.md`.

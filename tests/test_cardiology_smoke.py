@@ -13,25 +13,25 @@ def _payload_for_system(system: str) -> dict:
     """Build a minimal valid JSON payload for whichever variable prompt is active."""
     checks = [
         (
-            "new_permanent_pacemaker",
+            "pacemaker (permanenter Schrittmacher",
             {
-                "new_permanent_pacemaker": "Nein",
+                "pacemaker": "Kein",
                 "information_sufficient": True,
                 "reasoning": "Kein neuer SM.",
                 "evidence_quotes": [],
             },
         ),
         (
-            "postop_atrial_fibrillation",
+            "atrial_fibrillation (Vorhofflimmern",
             {
-                "postop_atrial_fibrillation": "Nein",
+                "atrial_fibrillation": "Kein",
                 "information_sufficient": True,
                 "reasoning": "Kein neues VHF.",
                 "evidence_quotes": [],
             },
         ),
         (
-            "cerebrovascular_event",
+            "cerebrovascular_event (neues zerebrovaskuläres",
             {
                 "cerebrovascular_event": "Keine",
                 "information_sufficient": True,
@@ -40,7 +40,7 @@ def _payload_for_system(system: str) -> dict:
             },
         ),
         (
-            "reoperation_context",
+            "reoperation_context\n",
             {
                 "reoperation_context": "Revisionseingriff wegen Infektion",
                 "information_sufficient": True,
@@ -49,7 +49,7 @@ def _payload_for_system(system: str) -> dict:
             },
         ),
         (
-            "reoperation_required",
+            "reoperation_required (Re-Operation erforderlich",
             {
                 "reoperation_required": "Ja",
                 "information_sufficient": True,
@@ -58,7 +58,7 @@ def _payload_for_system(system: str) -> dict:
             },
         ),
         (
-            "multi_system_failure",
+            "multi_system_failure (Multi-Organ-Versagen",
             {
                 "multi_system_failure": "Nein",
                 "information_sufficient": True,
@@ -76,7 +76,7 @@ def _payload_for_system(system: str) -> dict:
             },
         ),
         (
-            "rethoracotomy",
+            "rethoracotomy (Re-Thorakotomie",
             {
                 "rethoracotomy": "Nein",
                 "information_sufficient": True,
@@ -85,7 +85,7 @@ def _payload_for_system(system: str) -> dict:
             },
         ),
         (
-            "liver_cirrhosis",
+            "liver_cirrhosis (Leberzirrhose",
             {
                 "liver_cirrhosis": "Nein",
                 "information_sufficient": True,
@@ -113,16 +113,24 @@ def test_cardiology_smoke_task_loads():
         "Unbekannt",
         "k.A.",
     )
-    assert task.field_by_name("new_permanent_pacemaker").enum == (
-        "Nein",
-        "Ja",
+    assert task.field_by_name("pacemaker").enum == (
+        "Neu",
+        "Schon vorhanden",
+        "Kein",
+        "Unbekannt",
+        "k.A.",
+    )
+    assert task.field_by_name("atrial_fibrillation").enum == (
+        "Neu",
+        "Vorbestehend",
+        "Kein",
         "Unbekannt",
         "k.A.",
     )
     assert task.field_by_name("reoperation_context").type == "string"
     by_name = {v.name: v for v in task.variables}
-    assert by_name["new_permanent_pacemaker"].text_source == "verlegung"
-    assert by_name["postop_atrial_fibrillation"].text_source == "both"
+    assert by_name["pacemaker"].text_source == "verlegung"
+    assert by_name["atrial_fibrillation"].text_source == "both"
     assert by_name["multi_system_failure"].text_source == "verlegung"
 
 
@@ -200,7 +208,7 @@ def test_pipeline_one_call_per_variable(monkeypatch):
 def test_pipeline_partial_when_some_variables_fail(monkeypatch):
     def spy(messages):
         system = messages[0]["content"]
-        if "new_permanent_pacemaker" in system:
+        if "pacemaker (permanenter Schrittmacher" in system:
             return ""  # force failure after retries
         return json.dumps(_payload_for_system(system))
 
@@ -217,7 +225,7 @@ def test_pipeline_partial_when_some_variables_fail(monkeypatch):
     row, _ = pipe.run_report(report)
     assert row["status"] == "partial"
     assert row["reoperation_required"] == "Ja"
-    assert "new_permanent_pacemaker" in row["schema_errors"]
+    assert "pacemaker" in row["schema_errors"]
 
 
 def test_full_text_fallback_still_runs_all_variables(monkeypatch):
@@ -247,7 +255,7 @@ def test_pipeline_uses_verlegung_source_for_pacemaker(monkeypatch):
     def spy(messages):
         user = messages[1]["content"]
         system = messages[0]["content"]
-        if "new_permanent_pacemaker" in system:
+        if "pacemaker (permanenter Schrittmacher" in system:
             seen["texts"].append(user)
         return json.dumps(_payload_for_system(system))
 

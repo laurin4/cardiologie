@@ -2,11 +2,11 @@
 Cardiology smoke extraction task (Diagnoseliste + Verlegungsbericht).
 
 Clinical variables (one LLM call each; one patient row):
-  - new_permanent_pacemaker      Nein|Ja|Unbekannt|k.A.   ← Verlegungsbericht
-  - postop_atrial_fibrillation   Nein|Ja|Unbekannt|k.A.   ← Verlegung + Diagnoseliste
-  - cerebrovascular_event        Keine|TIA|Schlaganfall|Unbekannt|k.A. ← both
+  - pacemaker                    Neu|Schon vorhanden|Kein|Unbekannt|k.A. ← Verlegung
+  - atrial_fibrillation          Neu|Vorbestehend|Kein|Unbekannt|k.A.    ← both
+  - cerebrovascular_event        Keine|TIA|Schlaganfall|Unbekannt|k.A.   ← both
   - reoperation_required         Nein|Ja|Unbekannt|k.A.   ← interim text (final: strukturiert)
-  - reoperation_context          Freitext                 ← interim text
+  - reoperation_context          Freitext                 ← interim (final: Gründe ggf. Enum)
   - multi_system_failure         Nein|Ja|Unbekannt|k.A.   ← Verlegungsbericht
   - rethoracotomy                Nein|Ja|Unbekannt|k.A.   ← interim Verlegung (final: Opsbericht)
   - rethoracotomy_context        Freitext                 ← interim
@@ -14,13 +14,15 @@ Clinical variables (one LLM call each; one patient row):
                                                        (final: Eintrittsbericht / Child-Pugh)
 
 SWI (sternal wound infection) is out of scope for LLM extraction.
-Fine severity (oberflächlich/tief, Child-Pugh, …) is deferred.
+Deferred (no enum yet): Child-Pugh for cirrhosis; Re-Op reason enums;
+  SWI Superficial/Deep. Context freitext holds interim detail for Re-Op/Re-Thor.
 Keywords/prompts/outputs: German; field names: English.
 Policy:
-  - Ja / TIA / Schlaganfall = bestätigt / behandelt
-  - Nein / Keine = explizit verneint oder ausgeschlossen
+  - Neu / TIA / Schlaganfall / Ja = bestätigt / behandelt (status-spezifisch)
+  - Kein / Keine / Nein = explizit verneint oder ausgeschlossen
   - Unbekannt = erwähnt aber unklar / V.a. / widersprüchlich
   - k.A. = keine Angabe (Thema kommt im Text nicht vor)
+  - Schon vorhanden / Vorbestehend = vorbestehend ohne neues Ereignis
 """
 
 from __future__ import annotations
@@ -73,8 +75,97 @@ _YN_NORMALIZE: Dict[str, str] = {
     "n/a": "k.A.",
 }
 
+_KA_NORMALIZE: Dict[str, str] = {
+    "k.A.": "k.A.",
+    "k.a.": "k.A.",
+    "kA": "k.A.",
+    "KA": "k.A.",
+    "keine Angabe": "k.A.",
+    "Keine Angabe": "k.A.",
+    "nicht im Bericht": "k.A.",
+    "Nicht im Bericht": "k.A.",
+    "nicht erwaehnt": "k.A.",
+    "nicht erwähnt": "k.A.",
+    "n.e.": "k.A.",
+    "absent": "k.A.",
+    "not mentioned": "k.A.",
+    "N/A": "k.A.",
+    "n/a": "k.A.",
+}
+
+_PACEMAKER_ENUM = ("Neu", "Schon vorhanden", "Kein", "Unbekannt", "k.A.")
+_PACEMAKER_NORMALIZE: Dict[str, str] = {
+    **_KA_NORMALIZE,
+    "Neu": "Neu",
+    "neu": "Neu",
+    "New": "Neu",
+    "new": "Neu",
+    "Ja": "Neu",
+    "ja": "Neu",
+    "Yes": "Neu",
+    "yes": "Neu",
+    "Schon vorhanden": "Schon vorhanden",
+    "schon vorhanden": "Schon vorhanden",
+    "vorbestehend": "Schon vorhanden",
+    "Vorbestehend": "Schon vorhanden",
+    "pre-existing": "Schon vorhanden",
+    "preexisting": "Schon vorhanden",
+    "Kein": "Kein",
+    "kein": "Kein",
+    "Keine": "Kein",
+    "keine": "Kein",
+    "Nein": "Kein",
+    "nein": "Kein",
+    "No": "Kein",
+    "no": "Kein",
+    "None": "Kein",
+    "none": "Kein",
+    "Unknown": "Unbekannt",
+    "unknown": "Unbekannt",
+    "Unbekannt": "Unbekannt",
+    "unbekannt": "Unbekannt",
+}
+
+_AF_ENUM = ("Neu", "Vorbestehend", "Kein", "Unbekannt", "k.A.")
+_AF_NORMALIZE: Dict[str, str] = {
+    **_KA_NORMALIZE,
+    "Neu": "Neu",
+    "neu": "Neu",
+    "New": "Neu",
+    "new": "Neu",
+    "postop": "Neu",
+    "postoperativ": "Neu",
+    "Ja": "Neu",
+    "ja": "Neu",
+    "Yes": "Neu",
+    "yes": "Neu",
+    "Vorbestehend": "Vorbestehend",
+    "vorbestehend": "Vorbestehend",
+    "bekannt": "Vorbestehend",
+    "chronisch": "Vorbestehend",
+    "pre-existing": "Vorbestehend",
+    "preexisting": "Vorbestehend",
+    "Schon vorhanden": "Vorbestehend",
+    "schon vorhanden": "Vorbestehend",
+    "Kein": "Kein",
+    "kein": "Kein",
+    "Keine": "Kein",
+    "keine": "Kein",
+    "Nein": "Kein",
+    "nein": "Kein",
+    "No": "Kein",
+    "no": "Kein",
+    "None": "Kein",
+    "none": "Kein",
+    "Unknown": "Unbekannt",
+    "unknown": "Unbekannt",
+    "Unbekannt": "Unbekannt",
+    "unbekannt": "Unbekannt",
+}
+
 _CVA_ENUM = ("Keine", "TIA", "Schlaganfall", "Unbekannt", "k.A.")
 _CVA_NORMALIZE: Dict[str, str] = {
+    **_KA_NORMALIZE,
     "None": "Keine",
     "none": "Keine",
     "Nein": "Keine",
@@ -97,19 +188,6 @@ _CVA_NORMALIZE: Dict[str, str] = {
     "unknown": "Unbekannt",
     "Unbekannt": "Unbekannt",
     "unbekannt": "Unbekannt",
-    "k.A.": "k.A.",
-    "k.a.": "k.A.",
-    "kA": "k.A.",
-    "KA": "k.A.",
-    "keine Angabe": "k.A.",
-    "Keine Angabe": "k.A.",
-    "nicht im Bericht": "k.A.",
-    "Nicht im Bericht": "k.A.",
-    "n.e.": "k.A.",
-    "absent": "k.A.",
-    "not mentioned": "k.A.",
-    "N/A": "k.A.",
-    "n/a": "k.A.",
 }
 
 _AUDIT_FIELDS = (
@@ -212,13 +290,28 @@ def _text_variable(
     )
 
 
-_FIELD_PACEMAKER = _yn_field(
-    "new_permanent_pacemaker",
-    "Neuer permanenter Schrittmacher im postoperativen Verlauf (Nein/Ja/Unbekannt/k.A.).",
+_FIELD_PACEMAKER = SchemaField(
+    name="pacemaker",
+    type="enum",
+    enum=_PACEMAKER_ENUM,
+    required=True,
+    default="Unbekannt",
+    description=(
+        "Permanenter Schrittmacher: Neu / Schon vorhanden / Kein / Unbekannt / k.A. "
+        "Neu = neue permanente Implantation; Schon vorhanden = vorbestehend ohne neuen; "
+        "temporärer SM allein → Unbekannt."
+    ),
 )
-_FIELD_AF = _yn_field(
-    "postop_atrial_fibrillation",
-    "Neu aufgetretenes postoperatives Vorhofflimmern (Nein/Ja/Unbekannt/k.A.).",
+_FIELD_AF = SchemaField(
+    name="atrial_fibrillation",
+    type="enum",
+    enum=_AF_ENUM,
+    required=True,
+    default="Unbekannt",
+    description=(
+        "Vorhofflimmern: Neu / Vorbestehend / Kein / Unbekannt / k.A. "
+        "Neu = neu/postop; Vorbestehend = bekannt vor OP ohne neues Ereignis."
+    ),
 )
 _FIELD_CVA = SchemaField(
     name="cerebrovascular_event",
@@ -235,14 +328,18 @@ _FIELD_CVA = SchemaField(
 _FIELD_REOP = _yn_field(
     "reoperation_required",
     "Re-Operation erforderlich/durchgeführt (Nein/Ja/Unbekannt/k.A.). "
-    "Interim: Textquellen; final geplant über strukturierte OP-Daten (Rodney).",
+    "Interim: Textquellen; final geplant über strukturierte OP-Daten (Rodney). "
+    "Gründe: interim Freitext (reoperation_context); final ggf. Enum.",
 )
 _FIELD_REOP_CTX = SchemaField(
     name="reoperation_context",
     type="string",
     required=True,
     default="",
-    description="Relevanter Freitext/Kontext rund um Re-Operation (kein Enum).",
+    description=(
+        "Relevanter Freitext/Kontext rund um Re-Operation (kein Enum). "
+        "Deferred: strukturierte Re-Op-Gründe wenn Validierungskriterien da."
+    ),
 )
 _FIELD_MSF = _yn_field(
     "multi_system_failure",
@@ -263,7 +360,8 @@ _FIELD_RETHOR_CTX = SchemaField(
 _FIELD_CIRRHOSIS = _yn_field(
     "liver_cirrhosis",
     "Leberzirrhose dokumentiert (Nein/Ja/Unbekannt/k.A.; ohne Child-Pugh). "
-    "Interim: Diagnoseliste±Verlegung; final: Eintrittsbericht. "
+    "Interim: Diagnoseliste±Verlegung; final: Eintrittsbericht / Child-Pugh "
+    "wenn Kriterien vorliegen. "
     "V.a./Verdacht allein → Unbekannt; nicht erwähnt → k.A.",
 )
 
@@ -470,20 +568,36 @@ _SECTION_MARKERS = (
     ("[prozedere]", "prozedere"),
 )
 
-VARIABLE_PACEMAKER = _yn_variable(
-    name="new_permanent_pacemaker",
-    label="Neuer permanenter Schrittmacher",
+VARIABLE_PACEMAKER = VariableSpec(
+    name="pacemaker",
+    label="Schrittmacher",
     prompt_name="cardiology_var_pacemaker",
-    description=_FIELD_PACEMAKER.description,
+    fields=(_FIELD_PACEMAKER, *_AUDIT_FIELDS),
     evidence_group_names=("schrittmacher", "verneinung"),
+    consistency_rules=(
+        {"type": "normalize", "field": "pacemaker", "map": _PACEMAKER_NORMALIZE},
+        {
+            "type": "requires",
+            "if": {"information_sufficient": True},
+            "then_required": ["reasoning", "pacemaker"],
+        },
+    ),
     text_source="verlegung",
 )
-VARIABLE_AF = _yn_variable(
-    name="postop_atrial_fibrillation",
-    label="Postoperatives Vorhofflimmern",
+VARIABLE_AF = VariableSpec(
+    name="atrial_fibrillation",
+    label="Vorhofflimmern",
     prompt_name="cardiology_var_af",
-    description=_FIELD_AF.description,
+    fields=(_FIELD_AF, *_AUDIT_FIELDS),
     evidence_group_names=("vorhofflimmern", "verneinung"),
+    consistency_rules=(
+        {"type": "normalize", "field": "atrial_fibrillation", "map": _AF_NORMALIZE},
+        {
+            "type": "requires",
+            "if": {"information_sufficient": True},
+            "then_required": ["reasoning", "atrial_fibrillation"],
+        },
+    ),
     text_source="both",
 )
 VARIABLE_CVA = VariableSpec(
@@ -580,7 +694,8 @@ TASK = ExtractionTask(
     description=(
         "Kardiologie: Diagnoseliste + letzter Verlegungsbericht; "
         "je Variable eigene LLM-Abfrage und Textquelle; eine Ergebniszeile pro Patient. "
-        "SWI out of scope. Labels: Ja/Nein/Unbekannt/k.A. (CVA: +Keine/TIA/Schlaganfall)."
+        "SWI out of scope. Pacemaker/AF: Status-Enums; CVA: Keine/TIA/Schlaganfall; "
+        "übrige: Ja/Nein/Unbekannt/k.A. Deferred: Child-Pugh, Re-Op-Gründe, SWI."
     ),
     language="de",
     send_full_text_when_no_evidence=True,
@@ -590,8 +705,8 @@ TASK = ExtractionTask(
     negation_patterns=_NEGATION_PATTERNS,
     prompt_name="",
     consistency_rules=(
-        {"type": "normalize", "field": "new_permanent_pacemaker", "map": _YN_NORMALIZE},
-        {"type": "normalize", "field": "postop_atrial_fibrillation", "map": _YN_NORMALIZE},
+        {"type": "normalize", "field": "pacemaker", "map": _PACEMAKER_NORMALIZE},
+        {"type": "normalize", "field": "atrial_fibrillation", "map": _AF_NORMALIZE},
         {"type": "normalize", "field": "cerebrovascular_event", "map": _CVA_NORMALIZE},
         {"type": "normalize", "field": "reoperation_required", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "multi_system_failure", "map": _YN_NORMALIZE},
@@ -602,8 +717,8 @@ TASK = ExtractionTask(
             "if": {"information_sufficient": True},
             "then_required": [
                 "reasoning",
-                "new_permanent_pacemaker",
-                "postop_atrial_fibrillation",
+                "pacemaker",
+                "atrial_fibrillation",
                 "cerebrovascular_event",
                 "reoperation_required",
                 "multi_system_failure",

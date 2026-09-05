@@ -6,10 +6,15 @@ the relevant snippets; an LLM then produces a structured JSON object that is
 schema-validated and passed through deterministic clinical guardrails.
 
 The framework is **task-agnostic**: a new extraction problem is a new *task*
-(schema + keywords + prompt + rules), not new pipeline code. The first planned
-application is cardiology extraction (e.g. sternal wound infection, re-operation,
-re-thoracotomy, liver cirrhosis); a small neutral `demo_extraction` task ships so
-the pipeline runs and tests pass out of the box.
+(schema + keywords + prompt + rules), not new pipeline code. The primary
+application is **cardiology smoke** (`cardiology_smoke`): Diagnoseliste +
+Verlegungsbericht (join on **FallNummer**), one LLM call per clinical variable.
+Variables include pacemaker and atrial fibrillation (status enums), CVA
+(TIA/Schlaganfall), re-operation / re-thoracotomy (+ freitext context),
+multi-system failure, and liver cirrhosis. **SWI is out of scope** for LLM
+extraction. See `RUNBOOK.md` for labels, sources, and the validation workflow.
+A small neutral `demo_extraction` task ships so the pipeline runs and tests
+pass out of the box.
 
 > This project was refactored from a previous delirium-detection prototype. It no
 > longer contains the delirium reviewer cascade, delirium-specific logic, or

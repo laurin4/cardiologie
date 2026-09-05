@@ -4,7 +4,7 @@ Loader for HER Verlegungsbericht (transfer report) exports.
 Expected columns (semicolon CSV / Excel):
   OP_TerminNummer, FallNummer, OP_BeginnZeit, OP_EndeZeit,
   patnr, fallnr, berdat, bertyp, ber, name,
-  diag, epikrise, jetziges_leiden, prozedere
+  diag, epikrise, jetziges_leiden|jetztleid, prozedere|procedere
 
 Join key to Diagnoseliste: **FallNummer** / ``fallnr`` (clinic guidance).
 
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import pandas as pd
 
@@ -29,7 +29,17 @@ LOGGER = logging.getLogger(__name__)
 PATIENT_ALIASES = ("patnr", "PatientID", "PatientenID", "patient_id", "patientenid")
 FALL_ALIASES = ("FallNummer", "fallnr", "Fallnummer", "fall_nummer", "Fall Nr", "FallNr")
 BERDAT_ALIASES = ("berdat", "BerichtDatum", "bericht_datum")
-SECTION_COLS = ("diag", "epikrise", "jetziges_leiden", "prozedere")
+# Canonical section tag → accepted export column names (incl. truncated HER_IPS names).
+SECTION_ALIASES: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("diag", ("diag",)),
+    ("epikrise", ("epikrise",)),
+    ("jetziges_leiden", ("jetziges_leiden", "jetztleid", "jetzigesleiden")),
+    ("prozedere", ("prozedere", "procedere", "prozedure")),
+)
+SECTION_COLS = tuple(canonical for canonical, _ in SECTION_ALIASES)
+_ALL_SECTION_ALIASES = tuple(
+    alias for _, aliases in SECTION_ALIASES for alias in aliases
+)
 
 VERLEGUNG_TEXT_KEY = "verlegung_text"
 DIAGNOSELISTE_TEXT_KEY = "diagnoseliste_text"
@@ -48,6 +58,21 @@ def _find_column(df: pd.DataFrame, aliases: tuple[str, ...], label: str) -> str:
     )
 
 
+def _resolve_section_column(row_or_df_columns, aliases: tuple[str, ...]) -> Optional[str]:
+    """Return the actual column name matching any alias (case-insensitive), or None."""
+    if hasattr(row_or_df_columns, "index"):
+        cols = list(row_or_df_columns.index)
+    else:
+        cols = list(row_or_df_columns)
+    lower_map = {str(c).strip().lower(): str(c) for c in cols}
+    for alias in aliases:
+        if alias in cols:
+            return alias
+        if alias.lower() in lower_map:
+            return lower_map[alias.lower()]
+    return None
+
+
 def looks_like_her_verlegung_table(path: Path) -> bool:
     """Heuristic: has FallNummer (or patnr) + at least one clinical section column."""
     try:
@@ -57,14 +82,22 @@ def looks_like_her_verlegung_table(path: Path) -> bool:
     cols = {str(c).strip().lower() for c in df.columns}
     has_fall = any(a.lower() in cols for a in FALL_ALIASES)
     has_patient = any(a.lower() in cols for a in PATIENT_ALIASES)
-    has_section = any(s.lower() in cols for s in SECTION_COLS)
+    has_section = any(s.lower() in cols for s in _ALL_SECTION_ALIASES)
     return (has_fall or has_patient) and has_section
 
 
 def _format_verlegung_text(row: pd.Series) -> str:
     parts: List[str] = []
     meta_bits = []
-    for key in ("FallNummer", "fallnr", "OP_TerminNummer", "berdat", "bertyp", "patnr"):
+    for key in (
+        "FallNummer",
+        "fallnr",
+        "OP_TerminNummer",
+        "OP_TerminN",
+        "berdat",
+        "bertyp",
+        "patnr",
+    ):
         if key in row.index:
             v = normalize_str(row.get(key, ""))
             if v:
@@ -73,17 +106,13 @@ def _format_verlegung_text(row: pd.Series) -> str:
     if meta_bits:
         header += " " + " | ".join(meta_bits)
     parts.append(header)
-    for col in SECTION_COLS:
-        actual = None
-        for c in row.index:
-            if str(c).strip().lower() == col:
-                actual = c
-                break
+    for canonical, aliases in SECTION_ALIASES:
+        actual = _resolve_section_column(row, aliases)
         if actual is None:
             continue
         text = normalize_str(row.get(actual, ""))
         if text:
-            parts.append(f"[{col}]\n{text}")
+            parts.append(f"[{canonical}]\n{text}")
     return "\n\n".join(parts)
 
 
@@ -214,7 +243,14 @@ def discover_her_verlegung_paths(raw_dir: Optional[Path] = None) -> List[Path]:
     if not root.exists():
         return []
     suffixes = {".csv", ".tsv", ".txt", ".xlsx", ".xls", ".xlsm"}
-    candidates = sorted(root.glob("HER_Verlegungsbericht*"))
+    # Classic HER_Verlegungsbericht* and newer HER_IPS_Verlegungsbericht*
+    candidates = sorted(
+        {
+            *root.glob("HER_Verlegungsbericht*"),
+            *root.glob("HER_*Verlegungsbericht*"),
+            *root.glob("HER_IPS_Verlegungsbericht*"),
+        }
+    )
     tabular = [
         p
         for p in candidates

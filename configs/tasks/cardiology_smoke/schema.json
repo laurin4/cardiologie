@@ -1,10 +1,10 @@
 {
   "task": "cardiology_smoke",
-  "description": "Kardiologie Diagnoseliste + Verlegungsbericht: mehrere Variablen, je eigene LLM-Abfrage und Textquelle. SWI out of scope. Labels Nein/Ja/Unbekannt/k.A.",
+  "description": "Kardiologie Diagnoseliste + Verlegungsbericht: mehrere Variablen, je eigene LLM-Abfrage und Textquelle. SWI out of scope. Pacemaker/AF Status-Enums; CVA fine; übrige Ja/Nein/Unbekannt/k.A.",
   "language": "de",
   "fields": [
-    "new_permanent_pacemaker",
-    "postop_atrial_fibrillation",
+    "pacemaker",
+    "atrial_fibrillation",
     "cerebrovascular_event",
     "reoperation_required",
     "reoperation_context",
@@ -17,21 +17,29 @@
     "evidence_quotes"
   ],
   "text_sources": {
-    "new_permanent_pacemaker": "verlegung",
-    "postop_atrial_fibrillation": "both",
+    "pacemaker": "verlegung",
+    "atrial_fibrillation": "both",
     "cerebrovascular_event": "both",
     "reoperation_required": "both (interim; final: structured OP)",
-    "reoperation_context": "both (interim)",
+    "reoperation_context": "both (interim; deferred: reason enums)",
     "multi_system_failure": "verlegung",
     "rethoracotomy": "verlegung (interim; final: Opsbericht)",
     "rethoracotomy_context": "verlegung (interim)",
-    "liver_cirrhosis": "both (interim; final: Eintrittsbericht / Child-Pugh)"
+    "liver_cirrhosis": "both (interim; final: Eintrittsbericht / Child-Pugh when criteria exist)"
+  },
+  "enums": {
+    "pacemaker": ["Neu", "Schon vorhanden", "Kein", "Unbekannt", "k.A."],
+    "atrial_fibrillation": ["Neu", "Vorbestehend", "Kein", "Unbekannt", "k.A."],
+    "cerebrovascular_event": ["Keine", "TIA", "Schlaganfall", "Unbekannt", "k.A."],
+    "yn": ["Nein", "Ja", "Unbekannt", "k.A."]
   },
   "policy": {
-    "confirmed": "Ja / TIA / Schlaganfall",
-    "explicit_negation": "Nein / Keine",
-    "unclear_or_suspicion": "Unbekannt (incl. V.a. alone)",
+    "confirmed": "Neu / TIA / Schlaganfall / Ja (status-spezifisch)",
+    "pre_existing": "Schon vorhanden (pacemaker) / Vorbestehend (AF)",
+    "explicit_negation": "Kein / Keine / Nein",
+    "unclear_or_suspicion": "Unbekannt (incl. V.a. alone; temporary pacemaker alone)",
     "not_in_text": "k.A. (keine Angabe)",
+    "deferred": "Child-Pugh for cirrhosis; Re-Op reason enums; SWI Superficial/Deep (out of scope for LLM)",
     "swi": "sternal wound infection is out of scope for LLM extraction"
   }
 }
