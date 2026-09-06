@@ -668,6 +668,7 @@ def run(
     retry_failed: bool = False,
     llm_timeout: Optional[int] = None,
     require_verlegung: bool = False,
+    dendrite_path: Optional[Path] = None,
 ) -> Path:
     """
     Run the pipeline for *task_name* and write CSV + JSONL results.
@@ -677,6 +678,8 @@ def run(
     results CSV and merges them back (successful rows are kept).
     ``require_verlegung=True`` keeps only patients with a FallNummer Verlegung match
     (apply before ``max_reports``).
+    ``dendrite_path`` keeps only patients whose FallNummer appears in Dendrite gold
+    (apply after require_verlegung, before ``max_reports``).
     """
     _apply_llm_timeout(llm_timeout)
 
@@ -692,6 +695,24 @@ def run(
             raise SystemExit(
                 "No patients with Verlegung FallNummer match. "
                 "Check data/raw/ and run: python3 scripts/check_verlegung_join.py"
+            )
+    if dendrite_path is not None:
+        from src.evaluation.dendrite_score import (
+            filter_reports_by_dendrite_falls,
+            load_dendrite_fall_ids,
+        )
+
+        fall_ids = load_dendrite_fall_ids(dendrite_path)
+        before = len(reports)
+        reports = filter_reports_by_dendrite_falls(reports, fall_ids)
+        print(
+            f"dendrite-filter: kept {len(reports)} / {before} patients "
+            f"(Dendrite FallNummers={len(fall_ids)} from {dendrite_path})"
+        )
+        if not reports:
+            raise SystemExit(
+                "No patients overlap Dendrite FallNummer FID. "
+                "Check Dendrite file and Diagnose/Verlegung FallNummers."
             )
     if max_reports is not None:
         reports = reports[:max_reports]
@@ -881,6 +902,15 @@ def main() -> None:
             "(filter before --max-reports)."
         ),
     )
+    parser.add_argument(
+        "--dendrite",
+        default=None,
+        help=(
+            "Dendrite gold Excel/CSV: only process patients whose FallNummer is in "
+            "Dendrite (FallNummer FID). Apply after --require-verlegung, before "
+            "--max-reports. Strongly recommended for validation scoring runs."
+        ),
+    )
     args = parser.parse_args()
 
     from configs.config import parse_max_reports_env
@@ -897,6 +927,7 @@ def main() -> None:
     else:
         source = [Path(p) for p in args.reports]
     output_dir = Path(args.output_dir) if args.output_dir else None
+    dendrite_path = Path(args.dendrite) if args.dendrite else None
     run(
         args.task,
         source=source,
@@ -905,6 +936,7 @@ def main() -> None:
         retry_failed=args.retry_failed,
         llm_timeout=args.llm_timeout,
         require_verlegung=args.require_verlegung,
+        dendrite_path=dendrite_path,
     )
 
 

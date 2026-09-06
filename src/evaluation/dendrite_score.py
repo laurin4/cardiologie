@@ -394,6 +394,39 @@ def score_aligned(aligned: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def load_dendrite_fall_ids(path: PathLike) -> set[str]:
+    """Unique normalized FallNummer FID values from a Dendrite gold file."""
+    df = load_dendrite_gold(path)
+    return {normalize_str(x) for x in df["_fall"].tolist() if normalize_str(x)}
+
+
+def filter_reports_by_dendrite_falls(
+    reports: Sequence[Dict[str, Any]], fall_ids: set[str]
+) -> List[Dict[str, Any]]:
+    """
+    Keep patients whose ``verlegung_fallnr`` or any ``fall_nummers`` entry is in
+    *fall_ids* (Dendrite FallNummer FID set).
+    """
+    if not fall_ids:
+        return []
+    kept: List[Dict[str, Any]] = []
+    for rec in reports:
+        keys: List[str] = []
+        vfall = normalize_str(rec.get("verlegung_fallnr", ""))
+        if vfall:
+            keys.append(vfall)
+        falls = rec.get("fall_nummers") or []
+        if isinstance(falls, str):
+            falls = re.split(r"[|;,]", falls)
+        for f in falls:
+            k = normalize_str(f)
+            if k:
+                keys.append(k)
+        if any(k in fall_ids for k in keys):
+            kept.append(rec)
+    return kept
+
+
 def discover_dendrite_paths(raw_dir: Optional[Path] = None) -> List[Path]:
     from configs.config import RAW_DATA_DIR
 
@@ -406,7 +439,6 @@ def discover_dendrite_paths(raw_dir: Optional[Path] = None) -> List[Path]:
         for p in root.glob(pattern):
             if p.is_file() and p.suffix.lower() in suffixes:
                 out.append(p)
-    # dedupe
     seen = set()
     uniq: List[Path] = []
     for p in sorted(out, key=lambda x: x.name.lower()):

@@ -186,13 +186,21 @@ Empty Dendrite cells → missing (not Nein).
 Finer extraction enums stay in the pipeline; collapse only when scoring against Dendrite Ja/Nein.
 
 ```bash
-# After a pipeline run (results CSV must exist):
-python3 scripts/score_dendrite.py \
-  --predictions outputs/extractions/cardiology_smoke_results.csv \
-  --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx"
+# Validation run: only patients in Dendrite gold (~100–130, not full cohort)
+python3 -m src.pipeline.pipeline \
+  --task cardiology_smoke \
+  --reports \
+    data/raw/HER_Diagnose_vor2026.csv \
+    data/raw/HER_Diagnose_202601_202606.csv \
+  --require-verlegung \
+  --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
+  --max-reports all \
+  --output-dir outputs/extractions_dendrite
 
-# Or auto-discover Dendrite* under data/raw/ and default results path:
-python3 scripts/score_dendrite.py
+# Score:
+python3 scripts/score_dendrite.py \
+  --predictions outputs/extractions_dendrite/cardiology_smoke_results.csv \
+  --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx"
 ```
 
 Writes `outputs/evaluation/dendrite_score.json` and `dendrite_score_pairs.csv`.

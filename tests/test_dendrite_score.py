@@ -105,3 +105,17 @@ def test_align_and_score_smoke():
     # F200 CVA excluded (Paraparese); F100 scored
     assert result["per_field"]["cerebrovascular_event"]["n_scored"] == 1
     assert result["per_field"]["reoperation_required"]["accuracy"] == 1.0
+
+
+def test_filter_reports_by_dendrite_falls():
+    from src.evaluation.dendrite_score import filter_reports_by_dendrite_falls
+
+    reports = [
+        {"verlegung_fallnr": "F100", "fall_nummers": ["F100"]},
+        {"verlegung_fallnr": "F999", "fall_nummers": ["F999"]},
+        {"verlegung_fallnr": "", "fall_nummers": ["F200", "F201"]},
+    ]
+    kept = filter_reports_by_dendrite_falls(reports, {"F100", "F200"})
+    assert len(kept) == 2
+    assert kept[0]["verlegung_fallnr"] == "F100"
+    assert "F200" in kept[1]["fall_nummers"]
