@@ -126,7 +126,7 @@ Interpretability artifacts:
 ### Variables and labels (`cardiology_smoke`)
 
 Nine LLM calls per patient (one per variable). Text source is per variable
-(Verlegung only, Diagnoseliste only, or both). Details:
+(Verlegung, Diagnoseliste, both, or Austrittsbericht). Details:
 `configs/tasks/cardiology_smoke/task.py` and `schema.json`.
 
 | Field | Enum / type | Source |
@@ -134,24 +134,28 @@ Nine LLM calls per patient (one per variable). Text source is per variable
 | `pacemaker` | `Neu` \| `Schon vorhanden` \| `Kein` \| `Unbekannt` \| `k.A.` | Verlegung |
 | `atrial_fibrillation` | `Neu` \| `Vorbestehend` \| `Kein` \| `Unbekannt` \| `k.A.` | both |
 | `cerebrovascular_event` | `Keine` \| `TIA` \| `Schlaganfall` \| `Unbekannt` \| `k.A.` | both |
-| `reoperation_required` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | both (interim) |
+| `reoperation_required` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | both (weitere OP im Aufenthalt; Index-Redo ≠ Ja) |
 | `reoperation_context` | Freitext | both (interim) |
-| `multi_system_failure` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | Verlegung |
+| `multi_system_failure` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | Verlegung (nur explizites MOV) |
 | `rethoracotomy` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | Verlegung (interim) |
 | `rethoracotomy_context` | Freitext | Verlegung (interim) |
-| `liver_cirrhosis` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` (no Child-Pugh yet) | both (interim) |
+| `liver_cirrhosis` | `Nein` \| `Ja (Child-Pugh unbekannt\|A\|B\|C)` \| `Unbekannt` \| `k.A.` | Austritt (`stat_ein`, `anamn`) |
 
 **Shared label policy**
 - Confirmed status → `Neu` / `TIA` / `Schlaganfall` / `Ja` / `Schon vorhanden` / `Vorbestehend` (field-specific)
 - Explicit negation → `Kein` / `Keine` / `Nein`
-- Mentioned but unclear / V.a. alone → `Unbekannt` (temporary pacemaker alone → `Unbekannt`, not `Neu`)
+- Mentioned but unclear / V.a. alone → `Unbekannt` (temporary pacemaker alone → `Unbekannt`, not `Neu`; organ failure without explicit MOV → `Unbekannt`)
 - Topic not in text → `k.A.` (keine Angabe)
 
 **Out of scope / deferred (no enum yet)**
 - SWI (sternal wound infection) — not extracted by LLM
-- Child-Pugh for cirrhosis — when Eintrittsbericht / criteria exist
 - Structured Re-Op reason enums — interim stays Freitext context
 - Final Re-Op / Re-Thor from structured OP / Opsbericht when available
+
+**Source files (clinic)**
+- Verlegung: only `HER_IPS_Verlegungsbericht_2025*` (`ips_only=True` default)
+- Default cohort: Verlegung-primary (Diagnose + Austritt attached via FallNummer)
+- Austritt: `HER_Austrittsbericht_2025*` for cirrhosis
 
 Prompts: `prompts/cardiology_smoke_*.txt`, `prompts/cardiology_var_*.txt`.
 Keywords: `configs/tasks/cardiology_smoke/task.py`.
@@ -164,9 +168,9 @@ Dendrite gold format is known (`Label (Code)`); join key **`FallNummer FID`**.
 
 Sequence on the server:
 
-1. Place `HER_IPS_Verlegungsbericht*`, Diagnose, OP, Dendrite under `data/raw/`
+1. Place `HER_IPS_Verlegungsbericht*`, Diagnose, Austritt, Dendrite under `data/raw/`
 2. Confirm FallNummer join: `python3 scripts/check_verlegung_join.py`
-3. Run pipeline (`cardiology_smoke`), export review sheet
+3. Run pipeline (`cardiology_smoke`), export Rodney sample
 4. Score against Dendrite (start with `pacemaker` + `atrial_fibrillation` + CVA)
 
 **Dendrite → our fields (score mapping)**
@@ -186,13 +190,10 @@ Empty Dendrite cells → missing (not Nein).
 Finer extraction enums stay in the pipeline; collapse only when scoring against Dendrite Ja/Nein.
 
 ```bash
-# Validation run: only patients in Dendrite gold (~100–130, not full cohort)
+# Preferred: IPS Verlegung primary + Dendrite filter (large FallNummer overlap)
 python3 -m src.pipeline.pipeline \
   --task cardiology_smoke \
-  --reports \
-    data/raw/HER_Diagnose_vor2026.csv \
-    data/raw/HER_Diagnose_202601_202606.csv \
-  --require-verlegung \
+  --reports data/raw/HER_IPS_Verlegungsbericht_2025.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
   --max-reports all \
   --output-dir outputs/extractions_dendrite
@@ -201,6 +202,15 @@ python3 -m src.pipeline.pipeline \
 python3 scripts/score_dendrite.py \
   --predictions outputs/extractions_dendrite/cardiology_smoke_results.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx"
+
+# Rodney review: 25 Dendrite-overlap cases per variable
+# (Berichtstyp, Spalten, Snippets, Reasoning; Excel sheet per variable)
+python3 scripts/export_rodney_sample.py \
+  --results outputs/extractions_dendrite/cardiology_smoke_results.csv \
+  --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
+  --n-per-var 25 \
+  --format xlsx
+# -> outputs/evaluation/rodney_review_25.xlsx
 ```
 
 Writes `outputs/evaluation/dendrite_score.json` and `dendrite_score_pairs.csv`.

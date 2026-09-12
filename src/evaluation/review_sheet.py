@@ -20,6 +20,22 @@ CLINICAL_COLUMNS = [
     "liver_cirrhosis",
 ]
 
+PROVENANCE_SUFFIXES = (
+    "_source_report",
+    "_source_columns",
+    "_evidence_quotes",
+    "_reasoning",
+)
+
+
+def _provenance_columns() -> list[str]:
+    cols: list[str] = []
+    for var in CLINICAL_COLUMNS:
+        for suf in PROVENANCE_SUFFIXES:
+            cols.append(f"{var}{suf}")
+    return cols
+
+
 COLUMNS = [
     "patient_id",
     "fall_nummers",
@@ -27,6 +43,7 @@ COLUMNS = [
     "verlegung_matched",
     "status",
     *CLINICAL_COLUMNS,
+    *_provenance_columns(),
     "information_sufficient",
     "evidence_quotes",
     "reasoning",
@@ -169,6 +186,14 @@ def build_review_rows(result_rows: list[dict]) -> list[dict]:
         }
         for col in CLINICAL_COLUMNS:
             item[col] = _clean(row.get(col))
+            item[f"{col}_source_report"] = _clean(row.get(f"{col}_source_report"))
+            item[f"{col}_source_columns"] = _clean(row.get(f"{col}_source_columns"))
+            item[f"{col}_evidence_quotes"] = _quotes_cell(
+                row.get(f"{col}_evidence_quotes")
+            )
+            item[f"{col}_reasoning"] = _clean(row.get(f"{col}_reasoning")).replace(
+                "\n", " "
+            )
         out.append(item)
     return out
 
@@ -222,7 +247,12 @@ def write_excel(rows: list[dict], out_path: Path) -> None:
         "notes": 30,
     }
     for col_idx, name in enumerate(COLUMNS, start=1):
-        ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(name, 18)
+        default_w = 18
+        if name.endswith("_evidence_quotes") or name.endswith("_reasoning"):
+            default_w = 36
+        if name.endswith("_source_columns"):
+            default_w = 28
+        ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(name, default_w)
 
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions

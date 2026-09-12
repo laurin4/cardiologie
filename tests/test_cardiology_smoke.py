@@ -49,7 +49,7 @@ def _payload_for_system(system: str) -> dict:
             },
         ),
         (
-            "reoperation_required (Re-Operation erforderlich",
+            "reoperation_required (erneute Operation",
             {
                 "reoperation_required": "Ja",
                 "information_sufficient": True,
@@ -132,6 +132,16 @@ def test_cardiology_smoke_task_loads():
     assert by_name["pacemaker"].text_source == "verlegung"
     assert by_name["atrial_fibrillation"].text_source == "both"
     assert by_name["multi_system_failure"].text_source == "verlegung"
+    assert by_name["liver_cirrhosis"].text_source == "austritt"
+    assert task.field_by_name("liver_cirrhosis").enum == (
+        "Nein",
+        "Ja (Child-Pugh unbekannt)",
+        "Ja (Child-Pugh A)",
+        "Ja (Child-Pugh B)",
+        "Ja (Child-Pugh C)",
+        "Unbekannt",
+        "k.A.",
+    )
 
 
 def test_per_variable_prompts_load():

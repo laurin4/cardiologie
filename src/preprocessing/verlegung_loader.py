@@ -235,7 +235,16 @@ def pick_verlegung_for_falls(
     return chosen
 
 
-def discover_her_verlegung_paths(raw_dir: Optional[Path] = None) -> List[Path]:
+def discover_her_verlegung_paths(
+    raw_dir: Optional[Path] = None, *, ips_only: bool = True
+) -> List[Path]:
+    """
+    Discover Verlegungsbericht files under data/raw/.
+
+    Default ``ips_only=True`` (clinic): only ``HER_IPS_Verlegungsbericht*``
+    (Kisim 2025). Set ``ips_only=False`` to also include classic
+    ``HER_Verlegungsbericht*`` (vor2026).
+    """
     from configs.config import RAW_DATA_DIR
     from src.utils.table_io import is_excel_path
 
@@ -243,14 +252,16 @@ def discover_her_verlegung_paths(raw_dir: Optional[Path] = None) -> List[Path]:
     if not root.exists():
         return []
     suffixes = {".csv", ".tsv", ".txt", ".xlsx", ".xls", ".xlsm"}
-    # Classic HER_Verlegungsbericht* and newer HER_IPS_Verlegungsbericht*
-    candidates = sorted(
-        {
-            *root.glob("HER_Verlegungsbericht*"),
-            *root.glob("HER_*Verlegungsbericht*"),
-            *root.glob("HER_IPS_Verlegungsbericht*"),
-        }
-    )
+    if ips_only:
+        candidates = sorted(root.glob("HER_IPS_Verlegungsbericht*"))
+    else:
+        candidates = sorted(
+            {
+                *root.glob("HER_Verlegungsbericht*"),
+                *root.glob("HER_*Verlegungsbericht*"),
+                *root.glob("HER_IPS_Verlegungsbericht*"),
+            }
+        )
     tabular = [
         p
         for p in candidates
@@ -265,17 +276,41 @@ def discover_her_verlegung_paths(raw_dir: Optional[Path] = None) -> List[Path]:
     return sorted(by_stem.values(), key=lambda p: p.name.lower())
 
 
+# Human-readable provenance for Rodney review exports.
+TEXT_SOURCE_PROVENANCE: Dict[str, Tuple[str, str]] = {
+    "verlegung": (
+        "Verlegungsbericht",
+        "diag, epikrise, jetziges_leiden, prozedere",
+    ),
+    "diagnoseliste": ("Diagnoseliste", "Diagnose_Value"),
+    "both": (
+        "Diagnoseliste+Verlegungsbericht",
+        "Diagnose_Value; diag, epikrise, jetziges_leiden, prozedere",
+    ),
+    "austritt": ("Austrittsbericht", "stat_ein, anamn"),
+    "report": ("Report", "report_text"),
+}
+
+
+def provenance_for_text_source(text_source: str) -> Tuple[str, str]:
+    src = (text_source or "report").strip().lower()
+    return TEXT_SOURCE_PROVENANCE.get(src, TEXT_SOURCE_PROVENANCE["report"])
+
+
 def select_text_for_source(report: dict, text_source: str) -> str:
     """
     Pick patient text for a variable's ``text_source``.
 
-    ``report`` may contain ``diagnoseliste_text``, ``verlegung_text``, and/or
-    legacy ``report_text``.
+    ``report`` may contain ``diagnoseliste_text``, ``verlegung_text``,
+    ``austritt_text``, and/or legacy ``report_text``.
     """
+    from src.preprocessing.austritt_loader import AUSTRITT_TEXT_KEY
+
     diag = normalize_str(report.get(DIAGNOSELISTE_TEXT_KEY, ""))
     verl = normalize_str(report.get(VERLEGUNG_TEXT_KEY, ""))
+    austr = normalize_str(report.get(AUSTRITT_TEXT_KEY, ""))
     legacy = normalize_str(report.get("report_text", ""))
-    if not diag and legacy and "[Verlegungsbericht]" not in legacy:
+    if not diag and legacy and "[Verlegungsbericht]" not in legacy and "[Austrittsbericht]" not in legacy:
         diag = legacy
     if not verl and legacy and "[Verlegungsbericht]" in legacy and not diag:
         verl = legacy
@@ -285,10 +320,12 @@ def select_text_for_source(report: dict, text_source: str) -> str:
         return diag or legacy
     if src == "verlegung":
         return verl
+    if src == "austritt":
+        return austr
     if src == "both":
         parts = [p for p in (diag, verl) if p]
         if parts:
             return "\n\n".join(parts)
         return legacy
     # legacy / default
-    return legacy or diag or verl
+    return legacy or diag or verl or austr

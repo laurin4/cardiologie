@@ -77,12 +77,14 @@ def test_select_text_for_source_modes():
     report = {
         DIAGNOSELISTE_TEXT_KEY: "Diagnose Text",
         VERLEGUNG_TEXT_KEY: "Verlegung Text",
+        "austritt_text": "AustrittText",
         "report_text": "Diagnose Text",
     }
     assert select_text_for_source(report, "diagnoseliste") == "Diagnose Text"
     assert select_text_for_source(report, "verlegung") == "Verlegung Text"
     both = select_text_for_source(report, "both")
     assert "Diagnose Text" in both and "Verlegung Text" in both
+    assert select_text_for_source(report, "austritt") == "AustrittText"
     assert select_text_for_source(report, "report") == "Diagnose Text"
 
 
@@ -114,10 +116,10 @@ def test_discover_her_ips_verlegung_paths(tmp_path: Path):
     classic = tmp_path / "HER_Verlegungsbericht_old.csv"
     ips = tmp_path / "HER_IPS_Verlegungsbericht_2025.xlsx"
     classic.write_text("FallNummer;diag\nF1;x\n", encoding="utf-8")
-    ips.write_bytes(b"PK\x03\x04")  # minimal zip header; discovery only checks suffix/name
-    # write a real tiny excel via openpyxl/pandas if needed — discovery only needs filename
     ips.write_bytes(b"")  # empty file still matches glob + suffix
-    found = discover_her_verlegung_paths(tmp_path)
-    names = {p.name for p in found}
+    found_ips = discover_her_verlegung_paths(tmp_path, ips_only=True)
+    assert {p.name for p in found_ips} == {"HER_IPS_Verlegungsbericht_2025.xlsx"}
+    found_all = discover_her_verlegung_paths(tmp_path, ips_only=False)
+    names = {p.name for p in found_all}
     assert "HER_Verlegungsbericht_old.csv" in names
     assert "HER_IPS_Verlegungsbericht_2025.xlsx" in names

@@ -10,12 +10,11 @@ Clinical variables (one LLM call each; one patient row):
   - multi_system_failure         Nein|Ja|Unbekannt|k.A.   ← Verlegungsbericht
   - rethoracotomy                Nein|Ja|Unbekannt|k.A.   ← interim Verlegung (final: Opsbericht)
   - rethoracotomy_context        Freitext                 ← interim
-  - liver_cirrhosis              Nein|Ja|Unbekannt|k.A.   ← interim Diagnose±Verlegung
-                                                       (final: Eintrittsbericht / Child-Pugh)
+  - liver_cirrhosis              Child-Pugh Enums ← Austrittsbericht (stat_ein/anamn)
 
 SWI (sternal wound infection) is out of scope for LLM extraction.
-Deferred (no enum yet): Child-Pugh for cirrhosis; Re-Op reason enums;
-  SWI Superficial/Deep. Context freitext holds interim detail for Re-Op/Re-Thor.
+Deferred: Re-Op reason enums; SWI Superficial/Deep.
+Verlegung source: HER_IPS_Verlegungsbericht_2025 only (clinic).
 Keywords/prompts/outputs: German; field names: English.
 Policy:
   - Neu / TIA / Schlaganfall / Ja = bestätigt / behandelt (status-spezifisch)
@@ -23,6 +22,7 @@ Policy:
   - Unbekannt = erwähnt aber unklar / V.a. / widersprüchlich
   - k.A. = keine Angabe (Thema kommt im Text nicht vor)
   - Schon vorhanden / Vorbestehend = vorbestehend ohne neues Ereignis
+  - Re-Op Ja = weitere OP im gleichen Aufenthalt (nicht nur Index-Redo)
 """
 
 from __future__ import annotations
@@ -327,9 +327,9 @@ _FIELD_CVA = SchemaField(
 )
 _FIELD_REOP = _yn_field(
     "reoperation_required",
-    "Re-Operation erforderlich/durchgeführt (Nein/Ja/Unbekannt/k.A.). "
-    "Interim: Textquellen; final geplant über strukturierte OP-Daten (Rodney). "
-    "Gründe: interim Freitext (reoperation_context); final ggf. Enum.",
+    "Weitere Operation im gleichen Spitalaufenthalt (Nein/Ja/Unbekannt/k.A.). "
+    "Index-Redo allein (z.B. geplanter Re-MKE) zählt nicht als Ja. "
+    "Kontext: Freitext (reoperation_context).",
 )
 _FIELD_REOP_CTX = SchemaField(
     name="reoperation_context",
@@ -343,7 +343,8 @@ _FIELD_REOP_CTX = SchemaField(
 )
 _FIELD_MSF = _yn_field(
     "multi_system_failure",
-    "Multi-Organ-Versagen / Multi-system failure (Nein/Ja/Unbekannt/k.A.).",
+    "Multi-Organ-Versagen explizit (Nein/Ja/Unbekannt/k.A.). "
+    "Einzelne Organversagen ohne explizites MOV → Unbekannt.",
 )
 _FIELD_RETHOR = _yn_field(
     "rethoracotomy",
@@ -357,12 +358,57 @@ _FIELD_RETHOR_CTX = SchemaField(
     default="",
     description="Relevanter Freitext/Kontext rund um Re-Thorakotomie (kein Enum).",
 )
-_FIELD_CIRRHOSIS = _yn_field(
-    "liver_cirrhosis",
-    "Leberzirrhose dokumentiert (Nein/Ja/Unbekannt/k.A.; ohne Child-Pugh). "
-    "Interim: Diagnoseliste±Verlegung; final: Eintrittsbericht / Child-Pugh "
-    "wenn Kriterien vorliegen. "
-    "V.a./Verdacht allein → Unbekannt; nicht erwähnt → k.A.",
+
+_CIRRHOSIS_ENUM = (
+    "Nein",
+    "Ja (Child-Pugh unbekannt)",
+    "Ja (Child-Pugh A)",
+    "Ja (Child-Pugh B)",
+    "Ja (Child-Pugh C)",
+    "Unbekannt",
+    "k.A.",
+)
+_CIRRHOSIS_NORMALIZE: Dict[str, str] = {
+    **_KA_NORMALIZE,
+    "Nein": "Nein",
+    "nein": "Nein",
+    "No": "Nein",
+    "no": "Nein",
+    "None": "Nein",
+    "none": "Nein",
+    "Ja": "Ja (Child-Pugh unbekannt)",
+    "ja": "Ja (Child-Pugh unbekannt)",
+    "Yes": "Ja (Child-Pugh unbekannt)",
+    "yes": "Ja (Child-Pugh unbekannt)",
+    "Ja (Child-Pugh unbekannt)": "Ja (Child-Pugh unbekannt)",
+    "yes, Child-Pugh class unknown": "Ja (Child-Pugh unbekannt)",
+    "Child-Pugh unknown": "Ja (Child-Pugh unbekannt)",
+    "Ja (Child-Pugh A)": "Ja (Child-Pugh A)",
+    "Child-Pugh A": "Ja (Child-Pugh A)",
+    "Child Pugh A": "Ja (Child-Pugh A)",
+    "yes, Child-Pugh class A": "Ja (Child-Pugh A)",
+    "Ja (Child-Pugh B)": "Ja (Child-Pugh B)",
+    "Child-Pugh B": "Ja (Child-Pugh B)",
+    "yes, Child-Pugh class B": "Ja (Child-Pugh B)",
+    "Ja (Child-Pugh C)": "Ja (Child-Pugh C)",
+    "Child-Pugh C": "Ja (Child-Pugh C)",
+    "yes, Child-Pugh class C": "Ja (Child-Pugh C)",
+    "Unknown": "Unbekannt",
+    "unknown": "Unbekannt",
+    "Unbekannt": "Unbekannt",
+    "unbekannt": "Unbekannt",
+    "not known": "k.A.",
+}
+_FIELD_CIRRHOSIS = SchemaField(
+    name="liver_cirrhosis",
+    type="enum",
+    enum=_CIRRHOSIS_ENUM,
+    required=True,
+    default="Unbekannt",
+    description=(
+        "Leberzirrhose aus Austrittsbericht (stat_ein/anamn): "
+        "Nein / Ja (Child-Pugh unbekannt|A|B|C) / Unbekannt / k.A."
+    ),
 )
 
 _EVIDENCE_GROUPS = (
@@ -562,10 +608,13 @@ _NEGATION_PATTERNS = (
 _SECTION_MARKERS = (
     ("[Diagnoseliste]", "diagnoseliste"),
     ("[Verlegungsbericht]", "verlegungsbericht"),
+    ("[Austrittsbericht]", "austrittsbericht"),
     ("[diag]", "diag"),
     ("[epikrise]", "epikrise"),
     ("[jetziges_leiden]", "jetziges_leiden"),
     ("[prozedere]", "prozedere"),
+    ("[stat_ein]", "stat_ein"),
+    ("[anamn]", "anamn"),
 )
 
 VARIABLE_PACEMAKER = VariableSpec(
@@ -656,13 +705,21 @@ VARIABLE_RETHOR_CTX = _text_variable(
     evidence_group_names=("rethorakotomie", "reeingriff", "verneinung"),
     text_source="verlegung",
 )
-VARIABLE_CIRRHOSIS = _yn_variable(
+VARIABLE_CIRRHOSIS = VariableSpec(
     name="liver_cirrhosis",
     label="Leberzirrhose",
     prompt_name="cardiology_var_cirrhosis",
-    description=_FIELD_CIRRHOSIS.description,
+    fields=(_FIELD_CIRRHOSIS, *_AUDIT_FIELDS),
     evidence_group_names=("leberzirrhose", "verneinung"),
-    text_source="both",
+    consistency_rules=(
+        {"type": "normalize", "field": "liver_cirrhosis", "map": _CIRRHOSIS_NORMALIZE},
+        {
+            "type": "requires",
+            "if": {"information_sufficient": True},
+            "then_required": ["reasoning", "liver_cirrhosis"],
+        },
+    ),
+    text_source="austritt",
 )
 
 _CLINICAL_FIELDS = (
@@ -692,10 +749,10 @@ _VARIABLES = (
 TASK = ExtractionTask(
     name="cardiology_smoke",
     description=(
-        "Kardiologie: Diagnoseliste + letzter Verlegungsbericht; "
-        "je Variable eigene LLM-Abfrage und Textquelle; eine Ergebniszeile pro Patient. "
-        "SWI out of scope. Pacemaker/AF: Status-Enums; CVA: Keine/TIA/Schlaganfall; "
-        "übrige: Ja/Nein/Unbekannt/k.A. Deferred: Child-Pugh, Re-Op-Gründe, SWI."
+        "Kardiologie: IPS-Verlegung 2025 + Diagnoseliste + Austrittsbericht; "
+        "je Variable eigene LLM-Abfrage und Textquelle. "
+        "Zirrhose: Child-Pugh aus Austritt (stat_ein). "
+        "Re-Op: weitere OP im Aufenthalt. MOV nur explizit."
     ),
     language="de",
     send_full_text_when_no_evidence=True,
@@ -711,7 +768,7 @@ TASK = ExtractionTask(
         {"type": "normalize", "field": "reoperation_required", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "multi_system_failure", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "rethoracotomy", "map": _YN_NORMALIZE},
-        {"type": "normalize", "field": "liver_cirrhosis", "map": _YN_NORMALIZE},
+        {"type": "normalize", "field": "liver_cirrhosis", "map": _CIRRHOSIS_NORMALIZE},
         {
             "type": "requires",
             "if": {"information_sufficient": True},

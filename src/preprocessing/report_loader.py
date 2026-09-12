@@ -176,6 +176,38 @@ def _normalize_sources(source: SourceArg) -> List[Path]:
     return [Path(p) for p in source]
 
 
+def _attach_austritt(records: List[dict], austritt_paths: Sequence[Path]) -> List[dict]:
+    if not austritt_paths:
+        return records
+    from src.preprocessing.austritt_loader import (
+        AUSTRITT_TEXT_KEY,
+        load_austritt_by_fall,
+        pick_austritt_for_falls,
+    )
+
+    by_fall = load_austritt_by_fall(austritt_paths)
+    n_hit = 0
+    for rec in records:
+        falls = list(rec.get("fall_nummers") or [])
+        vfall = normalize_str(rec.get("verlegung_fallnr", ""))
+        if vfall and vfall not in falls:
+            falls = [vfall, *falls]
+        info = pick_austritt_for_falls(by_fall, falls)
+        if not info:
+            rec.setdefault(AUSTRITT_TEXT_KEY, "")
+            continue
+        n_hit += 1
+        rec.update(info)
+    LOGGER.info(
+        "Attached Austrittsbericht via FallNummer to %d / %d records "
+        "(%d Austritt FallNummer(n) available)",
+        n_hit,
+        len(records),
+        len(by_fall),
+    )
+    return records
+
+
 def _attach_verlegung(records: List[dict], verlegung_paths: Sequence[Path]) -> List[dict]:
     """Merge latest Verlegungsbericht onto Diagnoseliste records via FallNummer."""
     if not verlegung_paths:
@@ -234,14 +266,64 @@ def filter_reports_with_verlegung(records: List[dict]) -> List[dict]:
     return kept
 
 
+def _attach_diagnose_by_fall(records: List[dict]) -> List[dict]:
+    """Optional: attach Diagnoseliste text onto Verlegung-primary rows via FallNummer."""
+    from src.preprocessing.diagnose_loader import load_patient_diagnoseliste_many
+    from src.preprocessing.verlegung_loader import DIAGNOSELISTE_TEXT_KEY
+
+    her_paths = discover_her_diagnose_paths()
+    if not her_paths:
+        return records
+    patients = load_patient_diagnoseliste_many(her_paths)
+    fall_to_patient: Dict[str, dict] = {}
+    for p in patients:
+        for f in p.get("fall_nummers") or []:
+            key = normalize_str(f)
+            if key and key not in fall_to_patient:
+                fall_to_patient[key] = p
+    n_hit = 0
+    for rec in records:
+        fall = normalize_str(rec.get("verlegung_fallnr") or rec.get(REPORT_ID_KEY, ""))
+        p = fall_to_patient.get(fall)
+        if not p:
+            rec.setdefault(DIAGNOSELISTE_TEXT_KEY, "")
+            continue
+        n_hit += 1
+        rec[DIAGNOSELISTE_TEXT_KEY] = (
+            p.get(DIAGNOSELISTE_TEXT_KEY) or p.get(REPORT_TEXT_KEY) or ""
+        )
+        if p.get("patient_id"):
+            rec["patient_id"] = p["patient_id"]
+        rec["input_kind"] = "patient_verlegung+diagnoseliste"
+    LOGGER.info(
+        "Attached Diagnoseliste via FallNummer to %d / %d Verlegung-primary records",
+        n_hit,
+        len(records),
+    )
+    return records
+
+
+def _finalize_side_sources(
+    records: List[dict], *, verlegung_paths: Optional[Sequence[Path]] = None
+) -> List[dict]:
+    from src.preprocessing.austritt_loader import discover_her_austritt_paths
+    from src.preprocessing.verlegung_loader import discover_her_verlegung_paths
+
+    if verlegung_paths is not None:
+        records = _attach_verlegung(records, list(verlegung_paths))
+    records = _attach_austritt(records, discover_her_austritt_paths())
+    return records
+
+
 def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
     """
     Load reports from *source*.
 
     - Explicit directory           -> txt files
-    - HER Diagnose CSV/Excel       -> patient Diagnoseliste; optionally merge
-      HER_Verlegungsbericht* (latest by berdat) onto the same patients
-    - ``None``                     -> all HER_Diagnose* (+ Verlegung) under data/raw/
+    - HER Diagnose CSV/Excel       -> patient Diagnoseliste; merge IPS Verlegung
+      2025 + Austrittsbericht via FallNummer
+    - HER IPS Verlegung only       -> one row per FallNummer; attach Diagnose + Austritt
+    - ``None``                     -> all HER_Diagnose* (+ IPS Verlegung + Austritt)
     """
     from src.preprocessing.diagnose_loader import (
         load_patient_diagnoseliste_many,
@@ -255,8 +337,16 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
     paths = _normalize_sources(source)
 
     if not paths:
+        verlegung_paths = discover_her_verlegung_paths()  # IPS-only by default
         her_paths = discover_her_diagnose_paths()
-        verlegung_paths = discover_her_verlegung_paths()
+        # Prefer IPS-Verlegung primary (larger Dendrite FallNummer overlap).
+        if verlegung_paths:
+            LOGGER.info(
+                "Using %d default HER IPS Verlegung input(s) (primary): %s",
+                len(verlegung_paths),
+                ", ".join(p.name for p in verlegung_paths),
+            )
+            return load_reports(verlegung_paths)
         if her_paths:
             LOGGER.info(
                 "Using %d default HER Diagnose input(s): %s",
@@ -264,14 +354,15 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
                 ", ".join(p.name for p in her_paths),
             )
             records = load_patient_diagnoseliste_many(her_paths)
-            return _attach_verlegung(records, verlegung_paths)
+            return _finalize_side_sources(records, verlegung_paths=verlegung_paths)
         if DEFAULT_REPORTS_CSV.exists():
             return load_reports_from_table(DEFAULT_REPORTS_CSV, **table_kwargs)
         if DEFAULT_REPORTS_TXT_DIR.exists():
             return load_reports_from_txt_dir(DEFAULT_REPORTS_TXT_DIR)
         raise FileNotFoundError(
-            f"No report input found. Place HER_Diagnose CSV/Excel under {RAW_DATA_DIR}, "
-            f"a CSV at {DEFAULT_REPORTS_CSV}, or .txt files at {DEFAULT_REPORTS_TXT_DIR}."
+            f"No report input found. Place HER_IPS_Verlegungsbericht / HER_Diagnose "
+            f"under {RAW_DATA_DIR}, a CSV at {DEFAULT_REPORTS_CSV}, or .txt files at "
+            f"{DEFAULT_REPORTS_TXT_DIR}."
         )
 
     if len(paths) == 1 and paths[0].is_dir():
@@ -309,12 +400,10 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
             ", ".join(p.name for p in her_paths),
         )
         records = load_patient_diagnoseliste_many(her_paths)
-        # If caller did not pass Verlegung files, still auto-attach from data/raw/.
         attach = verlegung_paths or discover_her_verlegung_paths()
-        return _attach_verlegung(records, attach)
+        return _finalize_side_sources(records, verlegung_paths=attach)
 
     if verlegung_paths and not her_paths:
-        # Verlegung-only: one record per FallNummer (latest berdat).
         from src.preprocessing.verlegung_loader import (
             VERLEGUNG_TEXT_KEY,
             load_verlegung_by_fall,
@@ -337,7 +426,8 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
                     **clean,
                 }
             )
-        return records
+        records = _attach_diagnose_by_fall(records)
+        return _finalize_side_sources(records, verlegung_paths=None)
 
     if len(paths) == 1:
         path = paths[0]

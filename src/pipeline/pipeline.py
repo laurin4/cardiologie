@@ -292,7 +292,10 @@ class ClinicalExtractionPipeline:
         stages: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """One LLM call per VariableSpec; merge into a single field dict."""
-        from src.preprocessing.verlegung_loader import select_text_for_source
+        from src.preprocessing.verlegung_loader import (
+            provenance_for_text_source,
+            select_text_for_source,
+        )
 
         merged = {f.name: f.default for f in self.task.fields}
         schema_errors: List[str] = []
@@ -376,7 +379,21 @@ class ClinicalExtractionPipeline:
             var_reason = str(one.get("reasoning") or one["fields"].get("reasoning") or "").strip()
             if var_reason:
                 reason_parts.append(f"### {var.label}\n{var_reason}")
-            quotes = _merge_quotes(quotes, one.get("evidence_quotes"))
+            var_quotes = one.get("evidence_quotes") or []
+            quotes = _merge_quotes(quotes, var_quotes)
+
+            # Per-variable provenance for Rodney review (idiotensicher).
+            src_report, src_cols = provenance_for_text_source(
+                getattr(var, "text_source", "report")
+            )
+            merged[f"{var.name}_source_report"] = src_report
+            merged[f"{var.name}_source_columns"] = src_cols
+            merged[f"{var.name}_evidence_quotes"] = (
+                json.dumps(var_quotes, ensure_ascii=False)
+                if not isinstance(var_quotes, str)
+                else var_quotes
+            )
+            merged[f"{var.name}_reasoning"] = var_reason
 
             # Per-variable sufficiency: overall True only if every called variable was sufficient.
             # Store last; recomputed below.
@@ -581,6 +598,12 @@ class ClinicalExtractionPipeline:
         }
         for f in self.task.fields:
             row[f.name] = final_fields.get(f.name)
+        # Provenance columns (not in schema fields tuple, but stored in merged/final_fields)
+        for key, val in final_fields.items():
+            if key.endswith(
+                ("_source_report", "_source_columns", "_evidence_quotes", "_reasoning")
+            ):
+                row[key] = val
         row.update(one_hot)
 
         structured = {
