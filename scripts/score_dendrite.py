@@ -53,11 +53,9 @@ def _write_pairs_excel(df: pd.DataFrame, out_path: Path) -> None:
         "pred_raw": 18,
         "pred": 14,
         "match": 10,
-        "scored": 10,
-        "exclude_reason": 28,
         "source_report": 22,
         "source_columns": 36,
-        "evidence_quotes": 50,
+        "evidence_quotes": 55,
         "reasoning": 40,
     }
     for col_idx, name in enumerate(df.columns, start=1):
@@ -115,12 +113,16 @@ def main() -> None:
         type=int,
         default=25,
         help=(
-            "Sample this many aligned FallNummern before scoring (default: 25). "
-            "Same patients for every field → equal row counts. "
-            "Use 0 for all overlapping patients."
+            "Max complete (gold+pred) rows to export per variable (default: 25). "
+            "Use 0 for all complete pairs."
         ),
     )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--include-incomplete",
+        action="store_true",
+        help="Also export rows missing gold or pred (Unbekannt/k.A.). Default: complete only.",
+    )
     args = parser.parse_args()
 
     pred_path = (
@@ -156,11 +158,15 @@ def main() -> None:
         dend_path,
         max_patients=max_patients,
         seed=args.seed,
+        complete_only=not args.include_incomplete,
     )
     report = format_score_report(result)
     print(report)
-    n_export = result.get("n_patients_in_export", result["n_aligned_fall"])
-    print(f"Patients in export: {n_export} (max-patients={args.max_patients}, seed={args.seed})")
+    n_export = result.get("n_patients_in_export", {})
+    print(
+        f"Export rows per field (complete gold+pred): {n_export} "
+        f"(max-patients={args.max_patients}, seed={args.seed})"
+    )
 
     out_dir = Path(args.output_dir) if args.output_dir else OUTPUTS_DIR / "evaluation"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -168,7 +174,8 @@ def main() -> None:
         "predictions": str(pred_path),
         "dendrite": str(dend_path),
         "n_aligned_fall": result["n_aligned_fall"],
-        "n_patients_in_export": result.get("n_patients_in_export", result["n_aligned_fall"]),
+        "n_patients_in_export": result.get("n_patients_in_export"),
+        "complete_only": result.get("complete_only", True),
         "max_patients": args.max_patients,
         "seed": args.seed,
         "per_field": result["per_field"],

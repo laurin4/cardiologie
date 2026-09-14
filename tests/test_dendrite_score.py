@@ -152,10 +152,13 @@ def test_run_dendrite_score_max_patients_equal_counts(tmp_path):
     ppath = tmp_path / "pred.csv"
     gold.to_excel(gpath, index=False)
     preds.to_csv(ppath, index=False, sep=";")
-    result = run_dendrite_score(ppath, gpath, max_patients=25, seed=3)
-    assert result["n_patients_in_export"] == 25
+    result = run_dendrite_score(ppath, gpath, max_patients=25, seed=3, complete_only=True)
+    assert result["n_patients_in_export"]["pacemaker"] == 25
     for field, pairs in result["pairs"].items():
         assert len(pairs) == 25, field
+        assert all(r.get("gold") and r.get("pred") for r in pairs)
+        assert "scored" not in pairs[0]
+        assert "exclude_reason" not in pairs[0]
 
 
 def test_filter_reports_by_dendrite_falls():

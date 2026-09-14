@@ -55,7 +55,16 @@ def _text_source_for_variable(var_name: str) -> str:
 
 
 def build_long_rows(result_rows: list[dict], variables: Optional[Sequence[str]] = None) -> list[dict]:
+    from src.evaluation.evidence_format import (
+        format_tagged_evidence,
+        load_verlegung_text_by_fall,
+        parse_quotes_list,
+        reasoning_for_field,
+        source_text_for_field,
+    )
+
     vars_ = list(variables) if variables is not None else list(CLINICAL_COLUMNS)
+    text_by_fall = load_verlegung_text_by_fall()
     out: list[dict] = []
     for row in result_rows:
         patient_id = (
@@ -68,10 +77,14 @@ def build_long_rows(result_rows: list[dict], variables: Optional[Sequence[str]] 
             src_cols = _clean(row.get(f"{var}_source_columns"))
             if not src_report:
                 src_report, src_cols = provenance_for_text_source(_text_source_for_variable(var))
-            quotes = _quotes_cell(row.get(f"{var}_evidence_quotes") or row.get("evidence_quotes"))
-            reasoning = _clean(row.get(f"{var}_reasoning") or "")
-            if not reasoning and var == "reoperation_required":
-                reasoning = _clean(row.get("reasoning")).replace("\n", " ")
+            quotes = parse_quotes_list(row.get(f"{var}_evidence_quotes"))
+            source_text = source_text_for_field(row, var, text_by_fall=text_by_fall)
+            tagged = format_tagged_evidence(
+                quotes,
+                source_text=source_text,
+                fallback_column=src_cols.split(",")[0].strip() if src_cols else "quelle",
+            )
+            reasoning = reasoning_for_field(row, var)
             out.append(
                 {
                     "variable": var,
@@ -81,8 +94,8 @@ def build_long_rows(result_rows: list[dict], variables: Optional[Sequence[str]] 
                     "prediction": _clean(row.get(var)),
                     "source_report": src_report,
                     "source_columns": src_cols,
-                    "evidence_quotes": quotes,
-                    "reasoning": reasoning.replace("\n", " "),
+                    "evidence_quotes": tagged,
+                    "reasoning": reasoning,
                     "status": _clean(row.get("status")),
                     "correct": "",
                     "notes": "",

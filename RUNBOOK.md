@@ -198,15 +198,15 @@ python3 -m src.pipeline.pipeline \
   --max-reports 25 \
   --output-dir outputs/extractions_dendrite
 
-# Score + Review-Excel: genau 25 Patienten, JE Variable dieselben 25
-# (Gold vs Pred + Berichtstyp/Spalten/Snippets):
+# Score + Review-Excel: nur Zeilen mit Gold UND Pred, max. 25 pro Variable
 python3 scripts/score_dendrite.py \
   --predictions outputs/extractions_dendrite/cardiology_smoke_results.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
   --max-patients 25 \
   --seed 42
-# -> outputs/evaluation/dendrite_score_pairs.xlsx
-# Pro Variable genau 25 Zeilen (gleiche FallNummern). scored=False = nicht in Metrik.
+# -> dendrite_score_pairs.xlsx
+# evidence_quotes z.B. diagnose: "..." | epikrise: "..."
+# reasoning nur für die Variable der Zeile
 
 # Rodney Excel: dieselben N Patienten × alle Variablen
 python3 scripts/export_rodney_sample.py \

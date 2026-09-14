@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import pandas as pd
 
+from src.evaluation.evidence_format import FIELD_TEXT_SOURCE
 from src.evaluation.metrics import binary_metrics, categorical_accuracy
 from src.preprocessing.report_identity import normalize_str
 from src.utils.table_io import read_table
@@ -37,15 +38,6 @@ DENDRITE_COLUMNS: Dict[str, str] = {
     "Multisystem failure": "multi_system_failure",
 }
 
-# Fallback text_source when prediction CSV has no *_source_report columns (older runs).
-FIELD_TEXT_SOURCE: Dict[str, str] = {
-    "pacemaker": "verlegung",
-    "atrial_fibrillation": "both",
-    "cerebrovascular_event": "both",
-    "reoperation_required": "both",
-    "multi_system_failure": "verlegung",
-}
-
 PAIR_COLUMNS = [
     "fall",
     "patient_id",
@@ -56,8 +48,6 @@ PAIR_COLUMNS = [
     "pred_raw",
     "pred",
     "match",
-    "scored",
-    "exclude_reason",
     "source_report",
     "source_columns",
     "evidence_quotes",
@@ -321,8 +311,19 @@ def _flatten_quotes(raw: Any) -> str:
     return s.replace("\n", " | ")
 
 
-def provenance_from_pred_row(pred: Dict[str, Any], field: str) -> Dict[str, str]:
-    """Berichtstyp / Spalten / Snippets / Reasoning for one variable from a results row."""
+def provenance_from_pred_row(
+    pred: Dict[str, Any],
+    field: str,
+    *,
+    text_by_fall: Optional[Dict[str, str]] = None,
+) -> Dict[str, str]:
+    """Berichtstyp / Spalten / getaggte Snippets / Reasoning nur für diese Variable."""
+    from src.evaluation.evidence_format import (
+        format_tagged_evidence,
+        parse_quotes_list,
+        reasoning_for_field,
+        source_text_for_field,
+    )
     from src.preprocessing.verlegung_loader import provenance_for_text_source
 
     src_report = str(pred.get(f"{field}_source_report") or "").strip()
@@ -335,21 +336,25 @@ def provenance_from_pred_row(pred: Dict[str, Any], field: str) -> Dict[str, str]
         src_report, src_cols = provenance_for_text_source(
             FIELD_TEXT_SOURCE.get(field, "report")
         )
-    quotes = _flatten_quotes(pred.get(f"{field}_evidence_quotes"))
+
+    raw_quotes = pred.get(f"{field}_evidence_quotes")
+    quotes = parse_quotes_list(raw_quotes)
     if not quotes:
-        quotes = _flatten_quotes(pred.get("evidence_quotes"))
-    reasoning = str(pred.get(f"{field}_reasoning") or "").strip()
-    if reasoning.lower() in ("nan", "none", "null"):
-        reasoning = ""
-    if not reasoning:
-        reasoning = str(pred.get("reasoning") or "").strip()
-        if reasoning.lower() in ("nan", "none", "null"):
-            reasoning = ""
+        # Do not fall back to global evidence_quotes (mixed variables).
+        quotes = []
+
+    source_text = source_text_for_field(pred, field, text_by_fall=text_by_fall)
+    tagged = format_tagged_evidence(
+        quotes,
+        source_text=source_text,
+        fallback_column=src_cols.split(",")[0].strip() if src_cols else "quelle",
+    )
+    reasoning = reasoning_for_field(pred, field)
     return {
         "source_report": src_report,
         "source_columns": src_cols,
-        "evidence_quotes": quotes,
-        "reasoning": reasoning.replace("\n", " "),
+        "evidence_quotes": tagged,
+        "reasoning": reasoning,
     }
 
 
@@ -364,13 +369,14 @@ def _pair_row(
     pred: Optional[str],
     scored: bool,
     exclude_reason: str = "",
+    text_by_fall: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     prow = item["pred"]
-    prov = provenance_from_pred_row(prow, field)
+    prov = provenance_from_pred_row(prow, field, text_by_fall=text_by_fall)
     match: Any = ""
     if scored and gold is not None and pred is not None:
         match = gold == pred
-    return {
+    row = {
         "fall": item["fall"],
         "patient_id": normalize_str(prow.get("patient_id") or prow.get("report_id") or ""),
         "field": field,
@@ -384,6 +390,7 @@ def _pair_row(
         "exclude_reason": exclude_reason,
         **prov,
     }
+    return row
 
 
 def _score_binary_pairs(y_true: List[str], y_pred: List[str]) -> Dict[str, Any]:
@@ -396,7 +403,11 @@ def _score_binary_pairs(y_true: List[str], y_pred: List[str]) -> Dict[str, Any]:
     return metrics
 
 
-def score_aligned(aligned: List[Dict[str, Any]]) -> Dict[str, Any]:
+def score_aligned(
+    aligned: List[Dict[str, Any]],
+    *,
+    text_by_fall: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     per_field: Dict[str, Any] = {}
     pair_rows: List[Dict[str, Any]] = {}
 
@@ -449,6 +460,7 @@ def score_aligned(aligned: List[Dict[str, Any]]) -> Dict[str, Any]:
                         pred=p,
                         scored=False,
                         exclude_reason="missing_or_excluded_gold",
+                        text_by_fall=text_by_fall,
                     )
                 )
                 continue
@@ -466,6 +478,7 @@ def score_aligned(aligned: List[Dict[str, Any]]) -> Dict[str, Any]:
                         pred=None,
                         scored=False,
                         exclude_reason="missing_pred_Unbekannt_or_k.A.",
+                        text_by_fall=text_by_fall,
                     )
                 )
                 continue
@@ -481,6 +494,7 @@ def score_aligned(aligned: List[Dict[str, Any]]) -> Dict[str, Any]:
                     pred_raw=pred_raw,
                     pred=p,
                     scored=True,
+                    text_by_fall=text_by_fall,
                 )
             )
 
@@ -608,29 +622,62 @@ def format_score_report(result: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def select_complete_pairs_for_export(
+    pairs_by_field: Dict[str, List[Dict[str, Any]]],
+    *,
+    max_per_field: Optional[int] = 25,
+    seed: int = 42,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Keep only rows with both gold and pred (scored=True), then sample up to
+    *max_per_field* per variable.
+    """
+    import random
+
+    rng = random.Random(seed)
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for field, rows in pairs_by_field.items():
+        complete = [r for r in rows if r.get("scored") is True]
+        if max_per_field is not None and max_per_field > 0 and len(complete) > max_per_field:
+            complete = rng.sample(complete, max_per_field)
+            complete = sorted(complete, key=lambda r: str(r.get("fall") or ""))
+        cleaned: List[Dict[str, Any]] = []
+        for r in complete:
+            cleaned.append({k: r.get(k, "") for k in PAIR_COLUMNS})
+        out[field] = cleaned
+    return out
+
+
 def run_dendrite_score(
     predictions_path: PathLike,
     dendrite_path: PathLike,
     *,
     max_patients: Optional[int] = None,
     seed: int = 42,
+    complete_only: bool = True,
 ) -> Dict[str, Any]:
     """
     Score predictions vs Dendrite gold.
 
-    If ``max_patients`` is set, randomly sample that many aligned FallNummern
-    first (same patients for every field → equal row counts per variable).
+    Metrics use the full overlap. Export pairs default to complete rows only
+    (gold + pred both present), sampled to ``max_patients`` **per field**.
     """
-    import random
+    from src.evaluation.evidence_format import load_verlegung_text_by_fall
 
     preds = load_predictions(predictions_path)
     gold = load_dendrite_gold(dendrite_path)
     aligned = align_predictions_to_dendrite(preds, gold)
-    if max_patients is not None and max_patients > 0 and len(aligned) > max_patients:
-        rng = random.Random(seed)
-        aligned = rng.sample(aligned, max_patients)
-        # Stable order by fall for readable Excel
-        aligned = sorted(aligned, key=lambda x: str(x.get("fall") or ""))
-    result = score_aligned(aligned)
-    result["n_patients_in_export"] = len(aligned)
+    text_by_fall = load_verlegung_text_by_fall()
+    result = score_aligned(aligned, text_by_fall=text_by_fall)
+
+    export_pairs = result.get("pairs") or {}
+    if complete_only:
+        export_pairs = select_complete_pairs_for_export(
+            export_pairs,
+            max_per_field=max_patients,
+            seed=seed,
+        )
+    result["pairs"] = export_pairs
+    result["n_patients_in_export"] = {f: len(rows) for f, rows in export_pairs.items()}
+    result["complete_only"] = complete_only
     return result
