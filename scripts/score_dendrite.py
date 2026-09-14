@@ -110,6 +110,17 @@ def main() -> None:
         default=None,
         help="Where to write score JSON/CSV/XLSX (default: outputs/evaluation/).",
     )
+    parser.add_argument(
+        "--max-patients",
+        type=int,
+        default=25,
+        help=(
+            "Sample this many aligned FallNummern before scoring (default: 25). "
+            "Same patients for every field → equal row counts. "
+            "Use 0 for all overlapping patients."
+        ),
+    )
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
     pred_path = (
@@ -139,9 +150,17 @@ def main() -> None:
     if not dend_path.exists():
         raise SystemExit(f"Dendrite file not found: {dend_path}")
 
-    result = run_dendrite_score(pred_path, dend_path)
+    max_patients = None if args.max_patients == 0 else args.max_patients
+    result = run_dendrite_score(
+        pred_path,
+        dend_path,
+        max_patients=max_patients,
+        seed=args.seed,
+    )
     report = format_score_report(result)
     print(report)
+    n_export = result.get("n_patients_in_export", result["n_aligned_fall"])
+    print(f"Patients in export: {n_export} (max-patients={args.max_patients}, seed={args.seed})")
 
     out_dir = Path(args.output_dir) if args.output_dir else OUTPUTS_DIR / "evaluation"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -149,6 +168,9 @@ def main() -> None:
         "predictions": str(pred_path),
         "dendrite": str(dend_path),
         "n_aligned_fall": result["n_aligned_fall"],
+        "n_patients_in_export": result.get("n_patients_in_export", result["n_aligned_fall"]),
+        "max_patients": args.max_patients,
+        "seed": args.seed,
         "per_field": result["per_field"],
     }
     json_path = out_dir / "dendrite_score.json"

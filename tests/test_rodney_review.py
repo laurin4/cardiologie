@@ -9,6 +9,37 @@ from src.evaluation.rodney_review import (
 )
 
 
+def test_sample_patients_equal_variable_counts():
+    from src.evaluation.rodney_review import build_long_rows, sample_patients
+
+    rows = []
+    for i in range(40):
+        rows.append(
+            {
+                "patient_id": f"P{i}",
+                "verlegung_fallnr": f"F{i}",
+                "fall_nummers": f"F{i}",
+                "status": "extracted",
+                "pacemaker": "Neu" if i % 2 == 0 else "Kein",
+                "atrial_fibrillation": "Kein",
+                "liver_cirrhosis": "Nein",
+            }
+        )
+    picked = sample_patients(rows, n_patients=25, seed=7)
+    assert len(picked) == 25
+    long_rows = build_long_rows(
+        picked, variables=["pacemaker", "atrial_fibrillation", "liver_cirrhosis"]
+    )
+    counts = {}
+    for r in long_rows:
+        counts[r["variable"]] = counts.get(r["variable"], 0) + 1
+    assert counts == {
+        "pacemaker": 25,
+        "atrial_fibrillation": 25,
+        "liver_cirrhosis": 25,
+    }
+
+
 def test_sample_per_variable_caps_and_stratifies():
     long_rows = []
     for i in range(40):

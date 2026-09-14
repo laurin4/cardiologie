@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export Rodney review Excel: 25 cases/variable with report type, columns, snippets."""
+"""Export Rodney review Excel: N patients × all variables (same cohort)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from src.evaluation.review_sheet import CLINICAL_COLUMNS, enrich_fall_keys_from_
 from src.evaluation.rodney_review import (
     build_long_rows,
     filter_dendrite_overlap,
-    sample_per_variable,
+    sample_patients,
     write_rodney_csv,
     write_rodney_excel,
 )
@@ -25,7 +25,10 @@ from src.evaluation.rodney_review import (
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Sample 25 Dendrite-overlap cases per variable for Rodney review"
+        description=(
+            "Export Rodney review for exactly N Dendrite-overlap patients; "
+            "all variables for the same patients (equal counts)."
+        )
     )
     parser.add_argument(
         "--results",
@@ -37,7 +40,18 @@ def main() -> None:
         default=None,
         help="Dendrite gold file (default: discover under data/raw/)",
     )
-    parser.add_argument("--n-per-var", type=int, default=25)
+    parser.add_argument(
+        "--n-patients",
+        type=int,
+        default=25,
+        help="Number of patients to include (default: 25). Same set for every variable.",
+    )
+    parser.add_argument(
+        "--n-per-var",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,  # legacy alias; ignored — use --n-patients
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--format",
@@ -61,6 +75,13 @@ def main() -> None:
         help=f"Subset of variables (default: all clinical). Options: {', '.join(CLINICAL_COLUMNS)}",
     )
     args = parser.parse_args()
+
+    n_patients = args.n_patients
+    if args.n_per_var is not None:
+        print(
+            "NOTE: --n-per-var is deprecated; sampling is by patient. "
+            f"Using --n-patients {n_patients}."
+        )
 
     results_path = (
         Path(args.results)
@@ -99,28 +120,33 @@ def main() -> None:
             "No Dendrite-overlap rows. Re-run pipeline with --dendrite and IPS Verlegung primary."
         )
 
-    variables = args.variables or list(CLINICAL_COLUMNS)
-    long_rows = build_long_rows(overlapped, variables=variables)
-    sampled = sample_per_variable(
-        long_rows, n_per_var=args.n_per_var, seed=args.seed, variables=variables
-    )
-    counts = {}
-    for r in sampled:
-        counts[r["variable"]] = counts.get(r["variable"], 0) + 1
-    print("Sampled per variable:", ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    patients = sample_patients(overlapped, n_patients=n_patients, seed=args.seed)
+    print(f"Selected {len(patients)} patients (seed={args.seed})")
 
-    base = Path(args.out) if args.out else Path("outputs/evaluation") / "rodney_review_25"
+    variables = args.variables or list(CLINICAL_COLUMNS)
+    long_rows = build_long_rows(patients, variables=variables)
+    counts = {}
+    for r in long_rows:
+        counts[r["variable"]] = counts.get(r["variable"], 0) + 1
+    print(
+        "Rows per variable (must be equal):",
+        ", ".join(f"{k}={v}" for k, v in sorted(counts.items())),
+    )
+    if len(set(counts.values())) > 1:
+        raise SystemExit("Internal error: unequal variable row counts after patient sampling.")
+
+    base = Path(args.out) if args.out else Path("outputs/evaluation") / f"rodney_review_{n_patients}"
     written: list[Path] = []
     if args.format in ("csv", "both"):
         csv_path = base if base.suffix.lower() == ".csv" else base.with_suffix(".csv")
-        write_rodney_csv(sampled, csv_path)
+        write_rodney_csv(long_rows, csv_path)
         written.append(csv_path)
     if args.format in ("xlsx", "both"):
         xlsx_path = base if base.suffix.lower() == ".xlsx" else base.with_suffix(".xlsx")
-        write_rodney_excel(sampled, xlsx_path)
+        write_rodney_excel(long_rows, xlsx_path)
         written.append(xlsx_path)
 
-    print(f"Wrote {len(sampled)} review rows -> {', '.join(str(p) for p in written)}")
+    print(f"Wrote {len(long_rows)} review rows -> {', '.join(str(p) for p in written)}")
 
 
 if __name__ == "__main__":

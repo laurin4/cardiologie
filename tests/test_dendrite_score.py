@@ -117,6 +117,47 @@ def test_align_and_score_smoke():
     assert any(r.get("scored") is False for r in cva_pairs)
 
 
+def test_run_dendrite_score_max_patients_equal_counts(tmp_path):
+    from src.evaluation.dendrite_score import run_dendrite_score
+
+    gold = pd.DataFrame(
+        [
+            {
+                "FallNummer FID": f"F{i}",
+                "PM/ICD Implant": "Ja (1)" if i % 2 == 0 else "Nein (0)",
+                "Vorhofsarrhythmie postop": "Nein (0)",
+                "Neue post-OP neurol. Funktionsstörung": "Keine (0)",
+                "Reoperationen": "Keine erneute Operation erforderlich (0)",
+                "Multisystem failure": "No (0)",
+            }
+            for i in range(40)
+        ]
+    )
+    preds = pd.DataFrame(
+        [
+            {
+                "verlegung_fallnr": f"F{i}",
+                "fall_nummers": f"F{i}",
+                "patient_id": f"P{i}",
+                "pacemaker": "Neu" if i % 2 == 0 else "Kein",
+                "atrial_fibrillation": "Kein",
+                "cerebrovascular_event": "Keine",
+                "reoperation_required": "Nein",
+                "multi_system_failure": "Nein",
+            }
+            for i in range(40)
+        ]
+    )
+    gpath = tmp_path / "dend.xlsx"
+    ppath = tmp_path / "pred.csv"
+    gold.to_excel(gpath, index=False)
+    preds.to_csv(ppath, index=False, sep=";")
+    result = run_dendrite_score(ppath, gpath, max_patients=25, seed=3)
+    assert result["n_patients_in_export"] == 25
+    for field, pairs in result["pairs"].items():
+        assert len(pairs) == 25, field
+
+
 def test_filter_reports_by_dendrite_falls():
     from src.evaluation.dendrite_score import filter_reports_by_dendrite_falls
 

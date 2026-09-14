@@ -91,6 +91,48 @@ def build_long_rows(result_rows: list[dict], variables: Optional[Sequence[str]] 
     return out
 
 
+def sample_patients(
+    result_rows: list[dict],
+    *,
+    n_patients: int = 25,
+    seed: int = 42,
+) -> list[dict]:
+    """
+    Sample up to *n_patients* unique patients, then keep ALL their variable rows.
+
+    Ensures every variable has the same patient set / same row count.
+    """
+    if n_patients <= 0 or len(result_rows) <= n_patients:
+        return list(result_rows)
+
+    rng = random.Random(seed)
+    # Stable unique key per patient row
+    keyed: List[tuple[str, dict]] = []
+    seen: set[str] = set()
+    for row in result_rows:
+        key = (
+            _clean(row.get("verlegung_fallnr"))
+            or _clean(row.get("patient_id"))
+            or _clean(row.get("report_id"))
+            or _clean(row.get("fall_nummers"))
+        )
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        keyed.append((key, row))
+
+    if len(keyed) <= n_patients:
+        return [r for _, r in keyed]
+
+    picked_keys = {k for k, _ in rng.sample(keyed, n_patients)}
+    # Preserve original order among selected
+    out = []
+    for key, row in keyed:
+        if key in picked_keys:
+            out.append(row)
+    return out
+
+
 def sample_per_variable(
     long_rows: list[dict],
     *,

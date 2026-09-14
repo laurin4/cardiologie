@@ -611,8 +611,26 @@ def format_score_report(result: Dict[str, Any]) -> str:
 def run_dendrite_score(
     predictions_path: PathLike,
     dendrite_path: PathLike,
+    *,
+    max_patients: Optional[int] = None,
+    seed: int = 42,
 ) -> Dict[str, Any]:
+    """
+    Score predictions vs Dendrite gold.
+
+    If ``max_patients`` is set, randomly sample that many aligned FallNummern
+    first (same patients for every field → equal row counts per variable).
+    """
+    import random
+
     preds = load_predictions(predictions_path)
     gold = load_dendrite_gold(dendrite_path)
     aligned = align_predictions_to_dendrite(preds, gold)
-    return score_aligned(aligned)
+    if max_patients is not None and max_patients > 0 and len(aligned) > max_patients:
+        rng = random.Random(seed)
+        aligned = rng.sample(aligned, max_patients)
+        # Stable order by fall for readable Excel
+        aligned = sorted(aligned, key=lambda x: str(x.get("fall") or ""))
+    result = score_aligned(aligned)
+    result["n_patients_in_export"] = len(aligned)
+    return result

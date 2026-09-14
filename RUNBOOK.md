@@ -198,20 +198,21 @@ python3 -m src.pipeline.pipeline \
   --max-reports 25 \
   --output-dir outputs/extractions_dendrite
 
-# Score + Review-Excel (Gold vs Pred + Berichtstyp/Spalten/Snippets):
+# Score + Review-Excel: genau 25 Patienten, JE Variable dieselben 25
+# (Gold vs Pred + Berichtstyp/Spalten/Snippets):
 python3 scripts/score_dendrite.py \
   --predictions outputs/extractions_dendrite/cardiology_smoke_results.csv \
-  --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx"
-# -> outputs/evaluation/dendrite_score_pairs.xlsx  (Sheet all + je Variable)
-# Spalten: fall, field, gold*, pred*, match, source_report, source_columns,
-#          evidence_quotes, reasoning
+  --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
+  --max-patients 25 \
+  --seed 42
+# -> outputs/evaluation/dendrite_score_pairs.xlsx
+# Pro Variable genau 25 Zeilen (gleiche FallNummern). scored=False = nicht in Metrik.
 
-# Rodney Excel: alle Variablen für genau diese Patienten
-# (Berichtstyp, Spalten, Snippets, Reasoning; ein Sheet pro Variable)
+# Rodney Excel: dieselben N Patienten × alle Variablen
 python3 scripts/export_rodney_sample.py \
   --results outputs/extractions_dendrite/cardiology_smoke_results.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
-  --n-per-var 25 \
+  --n-patients 25 \
   --format xlsx
 # -> outputs/evaluation/rodney_review_25.xlsx
 ```
