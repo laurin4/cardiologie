@@ -16,10 +16,79 @@ if str(ROOT) not in sys.path:
 
 from configs.config import OUTPUTS_DIR, PREDICTIONS_DIR, RAW_DATA_DIR
 from src.evaluation.dendrite_score import (
+    PAIR_COLUMNS,
     discover_dendrite_paths,
     format_score_report,
     run_dendrite_score,
 )
+
+
+def _write_pairs_excel(df: pd.DataFrame, out_path: Path) -> None:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
+    from openpyxl.utils.dataframe import dataframe_to_rows
+
+    wb = Workbook()
+    overview = wb.active
+    overview.title = "all"
+    header_font = Font(bold=True)
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=1):
+        for c_idx, value in enumerate(row, start=1):
+            cell = overview.cell(row=r_idx, column=c_idx, value=value)
+            if r_idx == 1:
+                cell.font = header_font
+            else:
+                cell.alignment = wrap
+
+    widths = {
+        "fall": 14,
+        "patient_id": 12,
+        "field": 22,
+        "dendrite_column": 28,
+        "gold_raw": 36,
+        "gold": 14,
+        "pred_raw": 18,
+        "pred": 14,
+        "match": 10,
+        "scored": 10,
+        "exclude_reason": 28,
+        "source_report": 22,
+        "source_columns": 36,
+        "evidence_quotes": 50,
+        "reasoning": 40,
+    }
+    for col_idx, name in enumerate(df.columns, start=1):
+        overview.column_dimensions[get_column_letter(col_idx)].width = widths.get(
+            str(name), 16
+        )
+    overview.freeze_panes = "A2"
+    overview.auto_filter.ref = overview.dimensions
+
+    if "field" in df.columns:
+        for field, sub in df.groupby("field", sort=True):
+            title = str(field)[:28]
+            ws = wb.create_sheet(title=title)
+            for r_idx, row in enumerate(
+                dataframe_to_rows(sub, index=False, header=True), start=1
+            ):
+                for c_idx, value in enumerate(row, start=1):
+                    cell = ws.cell(row=r_idx, column=c_idx, value=value)
+                    if r_idx == 1:
+                        cell.font = header_font
+                    else:
+                        cell.alignment = wrap
+            for col_idx, name in enumerate(sub.columns, start=1):
+                ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(
+                    str(name), 16
+                )
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(out_path)
 
 
 def main() -> None:
@@ -29,7 +98,7 @@ def main() -> None:
     parser.add_argument(
         "--predictions",
         default=None,
-        help="Pipeline results CSV (default: outputs/extractions/cardiology_smoke_results.csv).",
+        help="Pipeline results CSV (default: outputs/extractions_dendrite/cardiology_smoke_results.csv).",
     )
     parser.add_argument(
         "--dendrite",
@@ -39,17 +108,21 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Where to write score JSON/CSV (default: outputs/evaluation/).",
+        help="Where to write score JSON/CSV/XLSX (default: outputs/evaluation/).",
     )
     args = parser.parse_args()
 
     pred_path = (
         Path(args.predictions)
         if args.predictions
-        else PREDICTIONS_DIR / "cardiology_smoke_results.csv"
+        else Path("outputs/extractions_dendrite/cardiology_smoke_results.csv")
     )
     if not pred_path.exists():
-        raise SystemExit(f"Predictions not found: {pred_path}")
+        alt = PREDICTIONS_DIR / "cardiology_smoke_results.csv"
+        if alt.exists():
+            pred_path = alt
+        else:
+            raise SystemExit(f"Predictions not found: {pred_path}")
 
     if args.dendrite:
         dend_path = Path(args.dendrite)
@@ -84,16 +157,17 @@ def main() -> None:
     pair_rows = []
     for field, rows in (result.get("pairs") or {}).items():
         pair_rows.extend(rows)
+    df = pd.DataFrame(pair_rows, columns=PAIR_COLUMNS) if pair_rows else pd.DataFrame(
+        columns=PAIR_COLUMNS
+    )
     pairs_path = out_dir / "dendrite_score_pairs.csv"
-    if pair_rows:
-        pd.DataFrame(pair_rows).to_csv(pairs_path, index=False, sep=";", encoding="utf-8-sig")
-    else:
-        pd.DataFrame(
-            columns=["fall", "field", "gold_raw", "gold", "pred_raw", "pred", "match"]
-        ).to_csv(pairs_path, index=False, sep=";", encoding="utf-8-sig")
+    df.to_csv(pairs_path, index=False, sep=";", encoding="utf-8-sig")
+    xlsx_path = out_dir / "dendrite_score_pairs.xlsx"
+    _write_pairs_excel(df, xlsx_path)
 
     print(f"Wrote {json_path}")
     print(f"Wrote {pairs_path}")
+    print(f"Wrote {xlsx_path}")
     if result["n_aligned_fall"] == 0:
         raise SystemExit(2)
 

@@ -80,6 +80,10 @@ def test_align_and_score_smoke():
                 "verlegung_fallnr": "F100",
                 "fall_nummers": "F100",
                 "pacemaker": "Neu",
+                "pacemaker_source_report": "Verlegungsbericht",
+                "pacemaker_source_columns": "diag, epikrise",
+                "pacemaker_evidence_quotes": '["SM neu implantiert"]',
+                "pacemaker_reasoning": "Neu",
                 "atrial_fibrillation": "Kein",
                 "cerebrovascular_event": "Keine",
                 "reoperation_required": "Nein",
@@ -88,6 +92,7 @@ def test_align_and_score_smoke():
             {
                 "verlegung_fallnr": "F200",
                 "fall_nummers": "F200 | F201",
+                "patient_id": "P2",
                 "pacemaker": "Kein",
                 "atrial_fibrillation": "Neu",
                 "cerebrovascular_event": "Keine",
@@ -105,6 +110,11 @@ def test_align_and_score_smoke():
     # F200 CVA excluded (Paraparese); F100 scored
     assert result["per_field"]["cerebrovascular_event"]["n_scored"] == 1
     assert result["per_field"]["reoperation_required"]["accuracy"] == 1.0
+    pm_pairs = result["pairs"]["pacemaker"]
+    assert any(r.get("source_report") == "Verlegungsbericht" for r in pm_pairs)
+    assert any("SM neu" in str(r.get("evidence_quotes", "")) for r in pm_pairs)
+    cva_pairs = result["pairs"]["cerebrovascular_event"]
+    assert any(r.get("scored") is False for r in cva_pairs)
 
 
 def test_filter_reports_by_dendrite_falls():

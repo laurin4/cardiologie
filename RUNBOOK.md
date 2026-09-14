@@ -190,21 +190,24 @@ Empty Dendrite cells → missing (not Nein).
 Finer extraction enums stay in the pipeline; collapse only when scoring against Dendrite Ja/Nein.
 
 ```bash
-# Preferred: IPS Verlegung primary + Dendrite filter (large FallNummer overlap)
+# Nur 25 Dendrite-Overlap-Patienten; für jeden laufen ALLE Variablen (9 LLM-Calls)
 python3 -m src.pipeline.pipeline \
   --task cardiology_smoke \
   --reports data/raw/HER_IPS_Verlegungsbericht_2025.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
-  --max-reports all \
+  --max-reports 25 \
   --output-dir outputs/extractions_dendrite
 
-# Score:
+# Score + Review-Excel (Gold vs Pred + Berichtstyp/Spalten/Snippets):
 python3 scripts/score_dendrite.py \
   --predictions outputs/extractions_dendrite/cardiology_smoke_results.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx"
+# -> outputs/evaluation/dendrite_score_pairs.xlsx  (Sheet all + je Variable)
+# Spalten: fall, field, gold*, pred*, match, source_report, source_columns,
+#          evidence_quotes, reasoning
 
-# Rodney review: 25 Dendrite-overlap cases per variable
-# (Berichtstyp, Spalten, Snippets, Reasoning; Excel sheet per variable)
+# Rodney Excel: alle Variablen für genau diese Patienten
+# (Berichtstyp, Spalten, Snippets, Reasoning; ein Sheet pro Variable)
 python3 scripts/export_rodney_sample.py \
   --results outputs/extractions_dendrite/cardiology_smoke_results.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
@@ -212,6 +215,9 @@ python3 scripts/export_rodney_sample.py \
   --format xlsx
 # -> outputs/evaluation/rodney_review_25.xlsx
 ```
+
+Reihenfolge im Pipeline-Filter: Dendrite-Overlap → dann `--max-reports` (hier 25).
+Nicht `--max-reports all` laufen lassen und danach samplen — das wäre der teure Voll-Lauf.
 
 Writes `outputs/evaluation/dendrite_score.json` and `dendrite_score_pairs.csv`.
 Exit code `2` if FallNummer overlap with predictions is 0.

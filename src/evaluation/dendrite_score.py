@@ -37,6 +37,33 @@ DENDRITE_COLUMNS: Dict[str, str] = {
     "Multisystem failure": "multi_system_failure",
 }
 
+# Fallback text_source when prediction CSV has no *_source_report columns (older runs).
+FIELD_TEXT_SOURCE: Dict[str, str] = {
+    "pacemaker": "verlegung",
+    "atrial_fibrillation": "both",
+    "cerebrovascular_event": "both",
+    "reoperation_required": "both",
+    "multi_system_failure": "verlegung",
+}
+
+PAIR_COLUMNS = [
+    "fall",
+    "patient_id",
+    "field",
+    "dendrite_column",
+    "gold_raw",
+    "gold",
+    "pred_raw",
+    "pred",
+    "match",
+    "scored",
+    "exclude_reason",
+    "source_report",
+    "source_columns",
+    "evidence_quotes",
+    "reasoning",
+]
+
 FALL_ALIASES = (
     "FallNummer FID",
     "FallNummer",
@@ -279,6 +306,86 @@ def align_predictions_to_dendrite(
     return aligned
 
 
+def _flatten_quotes(raw: Any) -> str:
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if not s or s.lower() in ("nan", "none", "null"):
+        return ""
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, list):
+            return " | ".join(str(x).strip() for x in parsed if str(x).strip())
+    except Exception:
+        pass
+    return s.replace("\n", " | ")
+
+
+def provenance_from_pred_row(pred: Dict[str, Any], field: str) -> Dict[str, str]:
+    """Berichtstyp / Spalten / Snippets / Reasoning for one variable from a results row."""
+    from src.preprocessing.verlegung_loader import provenance_for_text_source
+
+    src_report = str(pred.get(f"{field}_source_report") or "").strip()
+    src_cols = str(pred.get(f"{field}_source_columns") or "").strip()
+    if src_report.lower() in ("nan", "none", "null"):
+        src_report = ""
+    if src_cols.lower() in ("nan", "none", "null"):
+        src_cols = ""
+    if not src_report:
+        src_report, src_cols = provenance_for_text_source(
+            FIELD_TEXT_SOURCE.get(field, "report")
+        )
+    quotes = _flatten_quotes(pred.get(f"{field}_evidence_quotes"))
+    if not quotes:
+        quotes = _flatten_quotes(pred.get("evidence_quotes"))
+    reasoning = str(pred.get(f"{field}_reasoning") or "").strip()
+    if reasoning.lower() in ("nan", "none", "null"):
+        reasoning = ""
+    if not reasoning:
+        reasoning = str(pred.get("reasoning") or "").strip()
+        if reasoning.lower() in ("nan", "none", "null"):
+            reasoning = ""
+    return {
+        "source_report": src_report,
+        "source_columns": src_cols,
+        "evidence_quotes": quotes,
+        "reasoning": reasoning.replace("\n", " "),
+    }
+
+
+def _pair_row(
+    *,
+    item: Dict[str, Any],
+    field: str,
+    dend_col: str,
+    gt_raw: Any,
+    gold: Optional[str],
+    pred_raw: Any,
+    pred: Optional[str],
+    scored: bool,
+    exclude_reason: str = "",
+) -> Dict[str, Any]:
+    prow = item["pred"]
+    prov = provenance_from_pred_row(prow, field)
+    match: Any = ""
+    if scored and gold is not None and pred is not None:
+        match = gold == pred
+    return {
+        "fall": item["fall"],
+        "patient_id": normalize_str(prow.get("patient_id") or prow.get("report_id") or ""),
+        "field": field,
+        "dendrite_column": dend_col,
+        "gold_raw": gt_raw if gt_raw is not None else "",
+        "gold": gold if gold is not None else "",
+        "pred_raw": pred_raw if pred_raw is not None else "",
+        "pred": pred if pred is not None else "",
+        "match": match,
+        "scored": scored,
+        "exclude_reason": exclude_reason,
+        **prov,
+    }
+
+
 def _score_binary_pairs(y_true: List[str], y_pred: List[str]) -> Dict[str, Any]:
     # Map Ja→True for binary_metrics helper
     yt = [t == "Ja" for t in y_true]
@@ -326,27 +433,55 @@ def score_aligned(aligned: List[Dict[str, Any]]) -> Dict[str, Any]:
                         break
 
             g = gold_parser(gt_raw)
-            p = pred_collapse(item["pred"].get(field))
+            pred_raw = item["pred"].get(field)
+            p = pred_collapse(pred_raw)
             if g is None:
                 n_missing_gold += 1
                 n_excluded += 1
+                field_pairs.append(
+                    _pair_row(
+                        item=item,
+                        field=field,
+                        dend_col=dend_col,
+                        gt_raw=gt_raw,
+                        gold=None,
+                        pred_raw=pred_raw,
+                        pred=p,
+                        scored=False,
+                        exclude_reason="missing_or_excluded_gold",
+                    )
+                )
                 continue
             if p is None:
                 n_missing_pred += 1
                 n_excluded += 1
+                field_pairs.append(
+                    _pair_row(
+                        item=item,
+                        field=field,
+                        dend_col=dend_col,
+                        gt_raw=gt_raw,
+                        gold=g,
+                        pred_raw=pred_raw,
+                        pred=None,
+                        scored=False,
+                        exclude_reason="missing_pred_Unbekannt_or_k.A.",
+                    )
+                )
                 continue
             y_true.append(g)
             y_pred.append(p)
             field_pairs.append(
-                {
-                    "fall": item["fall"],
-                    "field": field,
-                    "gold_raw": gt_raw,
-                    "gold": g,
-                    "pred_raw": item["pred"].get(field),
-                    "pred": p,
-                    "match": g == p,
-                }
+                _pair_row(
+                    item=item,
+                    field=field,
+                    dend_col=dend_col,
+                    gt_raw=gt_raw,
+                    gold=g,
+                    pred_raw=pred_raw,
+                    pred=p,
+                    scored=True,
+                )
             )
 
         if field in BINARY_FIELDS:
