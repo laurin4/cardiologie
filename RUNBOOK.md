@@ -217,8 +217,10 @@ python3 scripts/export_rodney_sample.py \
 # -> outputs/evaluation/rodney_review_25.xlsx
 ```
 
-Reihenfolge im Pipeline-Filter: Dendrite-Overlap → dann `--max-reports` (hier 25).
-Nicht `--max-reports all` laufen lassen und danach samplen — das wäre der teure Voll-Lauf.
+Reihenfolge: Dendrite-Overlap → optional `--max-reports`.
+Für Rodney mit 25 **vollständigen** Gold+Pred-Paaren pro Variable braucht ihr
+genug scorable Fälle → typisch `--max-reports all` + danach Score mit
+`--max-patients 25`.
 
 Writes `outputs/evaluation/dendrite_score.json` and `dendrite_score_pairs.csv`.
 Exit code `2` if FallNummer overlap with predictions is 0.
