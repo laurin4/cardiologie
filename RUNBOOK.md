@@ -190,37 +190,31 @@ Empty Dendrite cells → missing (not Nein).
 Finer extraction enums stay in the pipeline; collapse only when scoring against Dendrite Ja/Nein.
 
 ```bash
-# Nur 25 Dendrite-Overlap-Patienten; für jeden laufen ALLE Variablen (9 LLM-Calls)
+# === Protocol A (recommended): 25 Dendrite-overlap patients, all variables ===
+# ~25 patients × 9 LLM calls ≈ 225 calls. Do NOT use --max-reports all.
+
+cd ~/cardiologie && git pull
+
 python3 -m src.pipeline.pipeline \
   --task cardiology_smoke \
   --reports data/raw/HER_IPS_Verlegungsbericht_2025.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
   --max-reports 25 \
-  --output-dir outputs/extractions_dendrite
+  --output-dir outputs/extractions_dendrite_25
 
-# Score + Review-Excel: nur Zeilen mit Gold UND Pred, max. 25 pro Variable
+# Review Excel: Gold vs Pred + column-tagged evidence + per-variable reasoning
 python3 scripts/score_dendrite.py \
-  --predictions outputs/extractions_dendrite/cardiology_smoke_results.csv \
+  --predictions outputs/extractions_dendrite_25/cardiology_smoke_results.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
   --max-patients 25 \
   --seed 42
-# -> dendrite_score_pairs.xlsx
-# evidence_quotes z.B. diagnose: "..." | epikrise: "..."
-# reasoning nur für die Variable der Zeile
-
-# Rodney Excel: dieselben N Patienten × alle Variablen
-python3 scripts/export_rodney_sample.py \
-  --results outputs/extractions_dendrite/cardiology_smoke_results.csv \
-  --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
-  --n-patients 25 \
-  --format xlsx
-# -> outputs/evaluation/rodney_review_25.xlsx
+# -> outputs/evaluation/dendrite_score_pairs.xlsx
 ```
 
-Reihenfolge: Dendrite-Overlap → optional `--max-reports`.
-Für Rodney mit 25 **vollständigen** Gold+Pred-Paaren pro Variable braucht ihr
-genug scorable Fälle → typisch `--max-reports all` + danach Score mit
-`--max-patients 25`.
+Filter order: Dendrite FallNummer overlap → then first 25 patients.
+Note: Score export keeps only rows with both gold and a scorable pred
+(`Unbekannt`/`k.A.` excluded). A field may therefore have fewer than 25
+complete pairs even though 25 patients were extracted.
 
 Writes `outputs/evaluation/dendrite_score.json` and `dendrite_score_pairs.csv`.
 Exit code `2` if FallNummer overlap with predictions is 0.
