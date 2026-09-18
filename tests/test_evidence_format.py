@@ -17,13 +17,15 @@ def test_normalize_and_format_structured_quotes():
         [
             {"column": "diag", "quote": "Schrittmacher neu implantiert am 1.1."},
             {"column": "epikrise", "quote": "Patient paced AAI 90/min."},
+            {"column": "jetziges_leiden", "quote": "Bekannter SM."},
         ]
     )
     assert items[0]["column"] == "diag"
     tagged = format_structured_evidence(items)
-    assert 'diagnose: "Schrittmacher neu implantiert am 1.1."' in tagged
-    assert 'epikrise: "Patient paced AAI 90/min."' in tagged
-    assert columns_used_from_evidence(items) == "diagnose; epikrise"
+    assert '"diag": Schrittmacher neu implantiert am 1.1.' in tagged
+    assert '"epikrise": Patient paced AAI 90/min.' in tagged
+    assert '"jetziges_leiden": Bekannter SM.' in tagged
+    assert columns_used_from_evidence(items) == "diag; epikrise; jetziges_leiden"
 
 
 def test_normalize_accepts_legacy_plain_strings():

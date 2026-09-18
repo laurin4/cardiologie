@@ -24,16 +24,17 @@ FIELD_TEXT_SOURCE: Dict[str, str] = {
     "liver_cirrhosis": "austritt",
 }
 
-# Input aliases → display label used in Excel
+# Input aliases → display label used in Excel (exact reviewer-facing names)
 SECTION_DISPLAY: Dict[str, str] = {
-    "diag": "diagnose",
-    "diagnose": "diagnose",
-    "Diagnose_Value": "diagnose",
-    "diagnose_value": "diagnose",
-    "diagnoseliste": "diagnose",
+    "diag": "diag",
+    "diagnose": "diag",
+    "Diagnose_Value": "Diagnose_Value",
+    "diagnose_value": "Diagnose_Value",
+    "diagnoseliste": "Diagnose_Value",
     "epikrise": "epikrise",
     "jetziges_leiden": "jetziges_leiden",
     "jetztleid": "jetziges_leiden",
+    "jetziges leiden": "jetziges_leiden",
     "prozedere": "prozedere",
     "procedere": "prozedere",
     "stat_ein": "stat_ein",
@@ -43,7 +44,7 @@ SECTION_DISPLAY: Dict[str, str] = {
     "austritt": "austritt",
     "Verlegungsbericht": "verlegung",
     "verlegung": "verlegung",
-    "Diagnoseliste": "diagnose",
+    "Diagnoseliste": "Diagnose_Value",
 }
 
 ALLOWED_EVIDENCE_COLUMNS = (
@@ -170,15 +171,24 @@ def normalize_evidence_quotes(raw: Any) -> List[Dict[str, str]]:
 
 
 def format_structured_evidence(items: Sequence[Dict[str, str]]) -> str:
-    """``diagnose: "..." | epikrise: "..."``."""
+    """
+    Reviewer format (exactly one source label per sentence):
+
+      "jetziges_leiden": <Satz>. "diag": <Satz>. "epikrise": <Satz>.
+    """
     parts: List[str] = []
     for item in items:
         quote = _clean(item.get("quote"))
         if not quote:
             continue
         label = display_column(item.get("column") or "unbekannt")
-        parts.append(f'{label}: "{quote}"')
-    return " | ".join(parts)
+        # Strip wrapping quotes from the sentence if the model already added them.
+        if (quote.startswith('"') and quote.endswith('"')) or (
+            quote.startswith("«") and quote.endswith("»")
+        ):
+            quote = quote[1:-1].strip()
+        parts.append(f'"{label}": {quote}')
+    return " ".join(parts)
 
 
 def columns_used_from_evidence(items: Sequence[Dict[str, str]]) -> str:

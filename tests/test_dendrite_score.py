@@ -114,8 +114,8 @@ def test_align_and_score_smoke():
     assert any(r.get("source_report") == "Verlegungsbericht" for r in pm_pairs)
     assert any("SM neu" in str(r.get("evidence_quotes", "")) for r in pm_pairs)
     assert any(
-        str(r.get("source_columns", "")).startswith("diagnose")
-        or "diagnose" in str(r.get("source_columns", ""))
+        '"diag":' in str(r.get("evidence_quotes", ""))
+        or "diag" in str(r.get("source_columns", ""))
         for r in pm_pairs
         if "SM neu" in str(r.get("evidence_quotes", ""))
     )

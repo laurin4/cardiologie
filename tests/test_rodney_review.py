@@ -107,8 +107,8 @@ def test_build_long_rows_uses_provenance_columns():
     assert pm["prediction"] == "Neu"
     assert pm["source_report"] == "Verlegungsbericht"
     assert "SM neu" in pm["evidence_quotes"]
-    assert pm["evidence_quotes"].startswith("diagnose:")
-    assert "diagnose" in pm["source_columns"]
+    assert '"diag":' in pm["evidence_quotes"]
+    assert "diag" in pm["source_columns"]
     ci = next(r for r in rows if r["variable"] == "liver_cirrhosis")
     assert ci["source_report"] == "Austrittsbericht"
 
