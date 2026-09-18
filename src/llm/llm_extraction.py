@@ -54,9 +54,10 @@ def _retry_user_suffix(task: ExtractionTask, attempt: int, *, evidence_retry: bo
         if evidence_retry:
             base += (
                 "\nevidence_quotes ist PFLICHT wenn die Diagnose nicht k.A. ist: "
-                '1–3 Objekte {"column":"diag|epikrise|jetziges_leiden|prozedere|'
+                'Objekte {"column":"diag|epikrise|jetziges_leiden|prozedere|'
                 'Diagnose_Value|stat_ein|anamn","quote":"<exakter Satz aus dem Text>"}. '
-                "Keine leeren Quotes."
+                "Mindestens 1 Zitat; alle für die Entscheidung relevanten Sätze "
+                "(kein Maximum bei 3). Keine leeren Quotes."
             )
         return base
     base = (
@@ -66,7 +67,8 @@ def _retry_user_suffix(task: ExtractionTask, attempt: int, *, evidence_retry: bo
     if evidence_retry:
         base += (
             "\nevidence_quotes REQUIRED when prediction is not k.A.: "
-            '1–3 objects {"column":"...","quote":"<verbatim sentence>"}.'
+            'objects {"column":"...","quote":"<verbatim sentence>"}; '
+            "include every sentence needed for the decision (no max of 3)."
         )
     return base
 

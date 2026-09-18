@@ -216,7 +216,8 @@ _AUDIT_FIELDS = (
         description=(
             'Belege als Array von {"column":"<Spalte>","quote":"<wörtlicher Satz>"}; '
             "column: diag|epikrise|jetziges_leiden|prozedere|Diagnose_Value|stat_ein|anamn; "
-            "1–3 Einträge wenn Pred≠k.A., sonst []"
+            "mindestens 1 Eintrag wenn Pred≠k.A., alle relevanten Sätze "
+            "(kein festes Maximum); bei k.A.: []"
         ),
     ),
 )

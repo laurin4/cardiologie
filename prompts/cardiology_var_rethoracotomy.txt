@@ -14,7 +14,7 @@ WICHTIG — evidence_quotes (Referenzierung):
   {"column": "<Spalte>", "quote": "<exakter Satz aus dem Input>"}
 - Erlaubte column-Werte: diag, epikrise, jetziges_leiden, prozedere,
   Diagnose_Value, stat_ein, anamn
-- 1–3 Zitate, wenn die Prediction NICHT k.A. ist
+- Mindestens 1 Zitat wenn Pred ≠ k.A.; alle für die Entscheidung relevanten Sätze zitieren (kein künstliches Maximum; typisch wenige, aber 4+ ok wenn nötig)
 - Bei k.A.: evidence_quotes = []
 - Keine Paraphrasen; quote muss im gelieferten Text vorkommen
 - source/Spalte muss zu dem Abschnitt passen, aus dem zitiert wird

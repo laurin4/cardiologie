@@ -89,7 +89,7 @@ FIELD_REASONING_HEADINGS: Dict[str, Tuple[str, ...]] = {
 EVIDENCE_SCHEMA_HINT_DE = (
     'Array von Objekten {"column":"<Spalte>","quote":"<wörtlicher Satz>"}; '
     "column eines von: diag, epikrise, jetziges_leiden, prozedere, Diagnose_Value, "
-    "stat_ein, anamn; 1–3 Zitate wenn Pred≠k.A., sonst []"
+    "stat_ein, anamn; mind. 1 Zitat wenn Pred≠k.A. (alle relevanten Sätze, kein Max-3), sonst []"
 )
 
 _SECTION_SPLIT = re.compile(r"\[([^\]]+)\]\s*")
@@ -393,5 +393,5 @@ def evidence_requirement_errors(fields: Dict[str, Any], task_fields: Sequence[An
     if quotes:
         return []
     return [
-        "evidence_quotes must contain 1–3 {column, quote} objects when prediction is not k.A."
+        "evidence_quotes must contain at least one {column, quote} object when prediction is not k.A."
     ]
