@@ -317,10 +317,12 @@ def provenance_from_pred_row(
     *,
     text_by_fall: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
-    """Berichtstyp / Spalten / getaggte Snippets / Reasoning nur für diese Variable."""
+    """Berichtstyp / genutzte Spalten / getaggte Snippets / Reasoning nur für diese Variable."""
     from src.evaluation.evidence_format import (
-        format_tagged_evidence,
-        parse_quotes_list,
+        columns_used_from_evidence,
+        enrich_evidence_columns_from_text,
+        format_structured_evidence,
+        normalize_evidence_quotes,
         reasoning_for_field,
         source_text_for_field,
     )
@@ -333,22 +335,23 @@ def provenance_from_pred_row(
     if src_cols.lower() in ("nan", "none", "null"):
         src_cols = ""
     if not src_report:
-        src_report, src_cols = provenance_for_text_source(
+        src_report, _fallback_cols = provenance_for_text_source(
             FIELD_TEXT_SOURCE.get(field, "report")
         )
+        if not src_cols:
+            src_cols = _fallback_cols
 
-    raw_quotes = pred.get(f"{field}_evidence_quotes")
-    quotes = parse_quotes_list(raw_quotes)
-    if not quotes:
-        # Do not fall back to global evidence_quotes (mixed variables).
-        quotes = []
-
+    items = normalize_evidence_quotes(pred.get(f"{field}_evidence_quotes"))
     source_text = source_text_for_field(pred, field, text_by_fall=text_by_fall)
-    tagged = format_tagged_evidence(
-        quotes,
-        source_text=source_text,
-        fallback_column=src_cols.split(",")[0].strip() if src_cols else "quelle",
-    )
+    if items:
+        items = enrich_evidence_columns_from_text(items, source_text)
+        tagged = format_structured_evidence(items)
+        used_cols = columns_used_from_evidence(items)
+        if used_cols:
+            src_cols = used_cols
+    else:
+        tagged = ""
+
     reasoning = reasoning_for_field(pred, field)
     return {
         "source_report": src_report,

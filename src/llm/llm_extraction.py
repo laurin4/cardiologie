@@ -43,18 +43,32 @@ def _apply_normalize_maps(raw: Dict[str, Any], task: ExtractionTask) -> Dict[str
     return out
 
 
-def _retry_user_suffix(task: ExtractionTask, attempt: int) -> str:
-    if attempt <= 0:
+def _retry_user_suffix(task: ExtractionTask, attempt: int, *, evidence_retry: bool = False) -> str:
+    if attempt <= 0 and not evidence_retry:
         return ""
     if (task.language or "en").lower().startswith("de"):
-        return (
+        base = (
             "\n\nWICHTIG (Retry): Antworte AUSSCHLIESSLICH mit einem einzigen gültigen "
             "JSON-Objekt. Kein Markdown, kein erklärender Text ausserhalb des JSON."
         )
-    return (
+        if evidence_retry:
+            base += (
+                "\nevidence_quotes ist PFLICHT wenn die Diagnose nicht k.A. ist: "
+                '1–3 Objekte {"column":"diag|epikrise|jetziges_leiden|prozedere|'
+                'Diagnose_Value|stat_ein|anamn","quote":"<exakter Satz aus dem Text>"}. '
+                "Keine leeren Quotes."
+            )
+        return base
+    base = (
         "\n\nIMPORTANT (retry): Reply with ONLY a single valid JSON object. "
         "No markdown or prose outside the JSON."
     )
+    if evidence_retry:
+        base += (
+            "\nevidence_quotes REQUIRED when prediction is not k.A.: "
+            '1–3 objects {"column":"...","quote":"<verbatim sentence>"}.'
+        )
+    return base
 
 
 def extract_entities(
@@ -96,10 +110,13 @@ def extract_entities(
     user_prompt = user_base
     last_error: Exception | None = None
     attempts_used = 0
+    evidence_retry = False
 
     for attempt in range(max_attempts):
         attempts_used = attempt + 1
-        user_prompt = user_base + _retry_user_suffix(task, attempt)
+        user_prompt = user_base + _retry_user_suffix(
+            task, attempt, evidence_retry=evidence_retry
+        )
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -109,6 +126,18 @@ def extract_entities(
             parsed = parse_llm_json_output(raw_output, f"{task.name} / extraction")
             parsed = _apply_normalize_maps(parsed, task)
             validated, errors = validate_against_schema(parsed, task)
+            from src.evaluation.evidence_format import evidence_requirement_errors
+
+            evidence_errors = evidence_requirement_errors(validated, task.fields)
+            if evidence_errors and attempt + 1 < max_attempts:
+                evidence_retry = True
+                print(
+                    f"LLM evidence incomplete ({task.name}), retry "
+                    f"{attempts_used}/{max_attempts}: {evidence_errors[0]}"
+                )
+                time.sleep(min(1.5 * (attempt + 1), 4.0))
+                continue
+            errors = list(errors) + list(evidence_errors)
             return {
                 "fields": validated,
                 "schema_errors": errors,

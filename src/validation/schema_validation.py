@@ -54,6 +54,10 @@ def _coerce_scalar(field: SchemaField, value: Any) -> Tuple[Any, bool]:
             return lower_map[s.lower()], True
         return None, False
     if t == "array":
+        if field.name == "evidence_quotes":
+            from src.evaluation.evidence_format import normalize_evidence_quotes
+
+            return normalize_evidence_quotes(value), True
         if isinstance(value, list):
             return [str(v).strip() for v in value if str(v).strip()], True
         s = str(value).strip()

@@ -50,6 +50,7 @@
     "not_in_text": "k.A. (keine Angabe)",
     "reoperation": "Ja only if further OP during same stay; Index-Redo alone ≠ Ja",
     "deferred": "Re-Op reason enums; SWI Superficial/Deep (out of scope for LLM); OP-Bericht loader",
+    "evidence_quotes": "array of {column, quote}; export as column: \"verbatim sentence\"",
     "swi": "sternal wound infection is out of scope for LLM extraction",
     "verlegung_source": "HER_IPS_Verlegungsbericht_2025 only (ips_only=True default)"
   }

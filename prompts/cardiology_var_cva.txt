@@ -14,6 +14,16 @@ cerebrovascular_event (neues zerebrovaskuläres Ereignis?)
    Wenn TIA und Schlaganfall klar vorkommen, bevorzuge Schlaganfall.
 
 Zusätzlich: information_sufficient, reasoning (Deutsch), evidence_quotes.
+WICHTIG — evidence_quotes (Referenzierung):
+- Pflichtformat: JSON-Array von Objekten
+  {"column": "<Spalte>", "quote": "<exakter Satz aus dem Input>"}
+- Erlaubte column-Werte: diag, epikrise, jetziges_leiden, prozedere,
+  Diagnose_Value, stat_ein, anamn
+- 1–3 Zitate, wenn die Prediction NICHT k.A. ist
+- Bei k.A.: evidence_quotes = []
+- Keine Paraphrasen; quote muss im gelieferten Text vorkommen
+- source/Spalte muss zu dem Abschnitt passen, aus dem zitiert wird
+
 Keine Befunde erfinden. Ausgabe nur als JSON. Enum exakt: Keine, TIA, Schlaganfall, Unbekannt, k.A.
 
 Klassifikation (Priorität, Enum exakt: Keine, TIA, Schlaganfall, Unbekannt, k.A.):

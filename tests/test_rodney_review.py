@@ -95,7 +95,7 @@ def test_build_long_rows_uses_provenance_columns():
                 "pacemaker": "Neu",
                 "pacemaker_source_report": "Verlegungsbericht",
                 "pacemaker_source_columns": "diag, epikrise",
-                "pacemaker_evidence_quotes": '["SM neu"]',
+                "pacemaker_evidence_quotes": '[{"column":"diag","quote":"SM neu"}]',
                 "pacemaker_reasoning": "Neu implantiert",
                 "liver_cirrhosis": "Nein",
             }
@@ -107,6 +107,8 @@ def test_build_long_rows_uses_provenance_columns():
     assert pm["prediction"] == "Neu"
     assert pm["source_report"] == "Verlegungsbericht"
     assert "SM neu" in pm["evidence_quotes"]
+    assert pm["evidence_quotes"].startswith("diagnose:")
+    assert "diagnose" in pm["source_columns"]
     ci = next(r for r in rows if r["variable"] == "liver_cirrhosis")
     assert ci["source_report"] == "Austrittsbericht"
 

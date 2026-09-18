@@ -18,7 +18,9 @@ def _payload_for_system(system: str) -> dict:
                 "pacemaker": "Kein",
                 "information_sufficient": True,
                 "reasoning": "Kein neuer SM.",
-                "evidence_quotes": [],
+                "evidence_quotes": [
+                    {"column": "epikrise", "quote": "Kein Schrittmacher implantiert."}
+                ],
             },
         ),
         (
@@ -27,7 +29,9 @@ def _payload_for_system(system: str) -> dict:
                 "atrial_fibrillation": "Kein",
                 "information_sufficient": True,
                 "reasoning": "Kein neues VHF.",
-                "evidence_quotes": [],
+                "evidence_quotes": [
+                    {"column": "diag", "quote": "Kein Vorhofflimmern."}
+                ],
             },
         ),
         (
@@ -36,7 +40,9 @@ def _payload_for_system(system: str) -> dict:
                 "cerebrovascular_event": "Keine",
                 "information_sufficient": True,
                 "reasoning": "Kein CVA.",
-                "evidence_quotes": [],
+                "evidence_quotes": [
+                    {"column": "epikrise", "quote": "Kein Schlaganfall."}
+                ],
             },
         ),
         (
@@ -45,7 +51,9 @@ def _payload_for_system(system: str) -> dict:
                 "reoperation_context": "Revisionseingriff wegen Infektion",
                 "information_sufficient": True,
                 "reasoning": "Kontext gefunden.",
-                "evidence_quotes": ["Revisionseingriff"],
+                "evidence_quotes": [
+                    {"column": "diag", "quote": "Revisionseingriff"}
+                ],
             },
         ),
         (
@@ -54,7 +62,9 @@ def _payload_for_system(system: str) -> dict:
                 "reoperation_required": "Ja",
                 "information_sufficient": True,
                 "reasoning": "Revisionseingriff dokumentiert.",
-                "evidence_quotes": ["Revisionseingriff"],
+                "evidence_quotes": [
+                    {"column": "diag", "quote": "Revisionseingriff"}
+                ],
             },
         ),
         (
@@ -63,7 +73,9 @@ def _payload_for_system(system: str) -> dict:
                 "multi_system_failure": "Nein",
                 "information_sufficient": True,
                 "reasoning": "Kein MOV.",
-                "evidence_quotes": [],
+                "evidence_quotes": [
+                    {"column": "epikrise", "quote": "Kein Multi-Organ-Versagen."}
+                ],
             },
         ),
         (
@@ -81,7 +93,9 @@ def _payload_for_system(system: str) -> dict:
                 "rethoracotomy": "Nein",
                 "information_sufficient": True,
                 "reasoning": "Keine Re-Thorakotomie.",
-                "evidence_quotes": [],
+                "evidence_quotes": [
+                    {"column": "epikrise", "quote": "Keine Re-Thorakotomie."}
+                ],
             },
         ),
         (
@@ -90,7 +104,9 @@ def _payload_for_system(system: str) -> dict:
                 "liver_cirrhosis": "Nein",
                 "information_sufficient": True,
                 "reasoning": "Keine Zirrhose.",
-                "evidence_quotes": [],
+                "evidence_quotes": [
+                    {"column": "stat_ein", "quote": "Keine Leberzirrhose."}
+                ],
             },
         ),
     ]

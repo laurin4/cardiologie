@@ -17,6 +17,16 @@ WICHTIG — was NICHT als Ja zählt:
   im gleichen Aufenthalt dokumentiert ist.
 
 Zusätzlich: information_sufficient, reasoning (Deutsch), evidence_quotes.
+WICHTIG — evidence_quotes (Referenzierung):
+- Pflichtformat: JSON-Array von Objekten
+  {"column": "<Spalte>", "quote": "<exakter Satz aus dem Input>"}
+- Erlaubte column-Werte: diag, epikrise, jetziges_leiden, prozedere,
+  Diagnose_Value, stat_ein, anamn
+- 1–3 Zitate, wenn die Prediction NICHT k.A. ist
+- Bei k.A.: evidence_quotes = []
+- Keine Paraphrasen; quote muss im gelieferten Text vorkommen
+- source/Spalte muss zu dem Abschnitt passen, aus dem zitiert wird
+
 Keine Befunde erfinden. Ausgabe nur als JSON.
 Enum-Werte exakt: Nein, Ja, Unbekannt, k.A.
 

@@ -208,8 +208,10 @@ python3 scripts/score_dendrite.py \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
   --max-patients 25 \
   --seed 42
-# -> outputs/evaluation/dendrite_score_pairs.xlsx
-```
+# evidence_quotes format in review Excel:
+#   diagnose: "wörtlicher Satz" | epikrise: "..."
+# source_columns = only columns that were actually cited (not the full menu).
+# LLM must return {"column":"...","quote":"..."} objects (see variable prompts).
 
 Filter order: Dendrite FallNummer overlap → then first 25 patients.
 Note: Score export keeps only rows with both gold and a scorable pred

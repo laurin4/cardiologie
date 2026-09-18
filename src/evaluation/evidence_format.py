@@ -1,9 +1,8 @@
 """
-Format evidence quotes with source-section labels and field-local reasoning.
+Structured evidence quotes: column + verbatim sentence for Rodney review.
 
-Used by Dendrite/Rodney review exports so reviewers see e.g.
-  diagnose: "Schrittmacher neu implantiert"
-and only the reasoning for the variable of that row.
+Canonical export form:
+  diagnose: "Schrittmacher neu implantiert" | epikrise: "paced AAI 90/min"
 """
 
 from __future__ import annotations
@@ -20,13 +19,17 @@ FIELD_TEXT_SOURCE: Dict[str, str] = {
     "cerebrovascular_event": "both",
     "reoperation_required": "both",
     "multi_system_failure": "verlegung",
+    "rethoracotomy": "verlegung",
+    "rethoracotomy_context": "verlegung",
+    "liver_cirrhosis": "austritt",
 }
 
-# Canonical section marker → display name in review Excel
+# Input aliases → display label used in Excel
 SECTION_DISPLAY: Dict[str, str] = {
     "diag": "diagnose",
     "diagnose": "diagnose",
     "Diagnose_Value": "diagnose",
+    "diagnose_value": "diagnose",
     "diagnoseliste": "diagnose",
     "epikrise": "epikrise",
     "jetziges_leiden": "jetziges_leiden",
@@ -37,11 +40,26 @@ SECTION_DISPLAY: Dict[str, str] = {
     "anamn": "anamn",
     "anamnese": "anamn",
     "Austrittsbericht": "austritt",
+    "austritt": "austritt",
     "Verlegungsbericht": "verlegung",
+    "verlegung": "verlegung",
     "Diagnoseliste": "diagnose",
 }
 
-# field → headings that may appear in aggregated ### reasoning blocks
+ALLOWED_EVIDENCE_COLUMNS = (
+    "diag",
+    "diagnose",
+    "Diagnose_Value",
+    "epikrise",
+    "jetziges_leiden",
+    "jetztleid",
+    "prozedere",
+    "procedere",
+    "stat_ein",
+    "anamn",
+    "anamnese",
+)
+
 FIELD_REASONING_HEADINGS: Dict[str, Tuple[str, ...]] = {
     "pacemaker": ("Schrittmacher", "pacemaker", "Permanenter Schrittmacher"),
     "atrial_fibrillation": ("Vorhofflimmern", "atrial_fibrillation", "AF"),
@@ -68,8 +86,17 @@ FIELD_REASONING_HEADINGS: Dict[str, Tuple[str, ...]] = {
     "liver_cirrhosis": ("Leberzirrhose", "liver_cirrhosis", "Zirrhose"),
 }
 
+EVIDENCE_SCHEMA_HINT_DE = (
+    'Array von Objekten {"column":"<Spalte>","quote":"<wörtlicher Satz>"}; '
+    "column eines von: diag, epikrise, jetziges_leiden, prozedere, Diagnose_Value, "
+    "stat_ein, anamn; 1–3 Zitate wenn Pred≠k.A., sonst []"
+)
+
 _SECTION_SPLIT = re.compile(r"\[([^\]]+)\]\s*")
 _HEADING_SPLIT = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
+_TAGGED_QUOTE = re.compile(
+    r'^\s*([A-Za-zÄÖÜäöü_]+)\s*:\s*[«"„]?(.+?)[»"“]?\s*$', re.DOTALL
+)
 
 
 def _clean(value: object) -> str:
@@ -81,19 +108,94 @@ def _clean(value: object) -> str:
     return s
 
 
-def parse_quotes_list(raw: Any) -> List[str]:
-    s = _clean(raw)
-    if not s:
+def display_column(raw_column: str) -> str:
+    key = _clean(raw_column)
+    if not key:
+        return "unbekannt"
+    return SECTION_DISPLAY.get(key) or SECTION_DISPLAY.get(key.lower()) or key.lower()
+
+
+def normalize_evidence_quotes(raw: Any) -> List[Dict[str, str]]:
+    """
+    Coerce LLM evidence_quotes into ``[{"column": "...", "quote": "..."}, ...]``.
+
+    Accepts:
+    - list of dicts with column/quote (or source/text aliases)
+    - list of plain strings (column=unbekannt)
+    - list of ``diag: "..."`` strings
+    - JSON string of any of the above
+    """
+    if raw is None:
         return []
-    try:
-        parsed = json.loads(s)
-        if isinstance(parsed, list):
-            return [_clean(x) for x in parsed if _clean(x)]
-    except Exception:
-        pass
-    if " | " in s:
-        return [_clean(x) for x in s.split(" | ") if _clean(x)]
-    return [s]
+    value = raw
+    if isinstance(raw, str):
+        s = _clean(raw)
+        if not s:
+            return []
+        try:
+            value = json.loads(s)
+        except Exception:
+            value = [s]
+
+    if not isinstance(value, list):
+        value = [value]
+
+    out: List[Dict[str, str]] = []
+    for item in value:
+        if isinstance(item, dict):
+            col = _clean(
+                item.get("column")
+                or item.get("source")
+                or item.get("section")
+                or item.get("spalte")
+            )
+            quote = _clean(
+                item.get("quote")
+                or item.get("text")
+                or item.get("zitat")
+                or item.get("evidence")
+            )
+            if quote:
+                out.append({"column": col or "unbekannt", "quote": quote})
+            continue
+        s = _clean(item)
+        if not s:
+            continue
+        m = _TAGGED_QUOTE.match(s)
+        if m:
+            out.append({"column": m.group(1).strip(), "quote": m.group(2).strip()})
+        else:
+            out.append({"column": "unbekannt", "quote": s})
+    return out
+
+
+def format_structured_evidence(items: Sequence[Dict[str, str]]) -> str:
+    """``diagnose: "..." | epikrise: "..."``."""
+    parts: List[str] = []
+    for item in items:
+        quote = _clean(item.get("quote"))
+        if not quote:
+            continue
+        label = display_column(item.get("column") or "unbekannt")
+        parts.append(f'{label}: "{quote}"')
+    return " | ".join(parts)
+
+
+def columns_used_from_evidence(items: Sequence[Dict[str, str]]) -> str:
+    """Unique display columns actually cited, semicolon-separated."""
+    seen: List[str] = []
+    for item in items:
+        if not _clean(item.get("quote")):
+            continue
+        label = display_column(item.get("column") or "unbekannt")
+        if label not in seen:
+            seen.append(label)
+    return "; ".join(seen)
+
+
+def parse_quotes_list(raw: Any) -> List[str]:
+    """Legacy: flat quote strings (for section-locator fallback)."""
+    return [_clean(x.get("quote")) for x in normalize_evidence_quotes(raw) if _clean(x.get("quote"))]
 
 
 def parse_sectioned_text(text: str) -> Dict[str, str]:
@@ -102,7 +204,6 @@ def parse_sectioned_text(text: str) -> Dict[str, str]:
     if not text:
         return {}
     parts = _SECTION_SPLIT.split(text)
-    # parts: [preamble, name1, body1, name2, body2, ...]
     out: Dict[str, str] = {}
     if len(parts) == 1:
         out["_full"] = parts[0]
@@ -113,8 +214,7 @@ def parse_sectioned_text(text: str) -> Dict[str, str]:
     for i in range(1, len(parts) - 1, 2):
         name = parts[i].strip()
         body = parts[i + 1].strip() if i + 1 < len(parts) else ""
-        key = name
-        out[key] = body
+        out[name] = body
         display = SECTION_DISPLAY.get(name) or SECTION_DISPLAY.get(name.lower())
         if display:
             out.setdefault(display, body)
@@ -129,53 +229,62 @@ def find_section_for_quote(quote: str, sections: Dict[str, str]) -> str:
     q = _normalize_for_match(quote)
     if not q:
         return "unbekannt"
-    # Prefer real sections over _full/_preamble
     candidates = [
-        (k, v)
-        for k, v in sections.items()
-        if not k.startswith("_") and _clean(v)
+        (k, v) for k, v in sections.items() if not k.startswith("_") and _clean(v)
     ]
     for key, body in candidates:
         if q in _normalize_for_match(body):
-            return SECTION_DISPLAY.get(key) or SECTION_DISPLAY.get(key.lower()) or key
-    # Short quotes: substring either way
+            return display_column(key)
     for key, body in candidates:
         bn = _normalize_for_match(body)
         if len(q) >= 12 and (q in bn or bn in q):
-            return SECTION_DISPLAY.get(key) or SECTION_DISPLAY.get(key.lower()) or key
+            return display_column(key)
     if "_full" in sections and q in _normalize_for_match(sections["_full"]):
         return "text"
     return "unbekannt"
 
 
+def enrich_evidence_columns_from_text(
+    items: Sequence[Dict[str, str]], source_text: str
+) -> List[Dict[str, str]]:
+    """If column is unbekannt, try to locate quote in sectioned source text."""
+    sections = parse_sectioned_text(source_text)
+    if not sections:
+        return [dict(x) for x in items]
+    out: List[Dict[str, str]] = []
+    for item in items:
+        col = _clean(item.get("column"))
+        quote = _clean(item.get("quote"))
+        if not quote:
+            continue
+        if not col or col.lower() in ("unbekannt", "unknown", "quelle", "text"):
+            col = find_section_for_quote(quote, sections)
+        out.append({"column": col, "quote": quote})
+    return out
+
+
 def format_tagged_evidence(
-    quotes: Sequence[str],
+    quotes: Sequence[Any],
     *,
     source_text: str = "",
     fallback_column: str = "",
 ) -> str:
     """
-    Format quotes as ``diagnose: "..." | epikrise: "..."``.
+    Format quotes for review Excel.
 
-    Uses section markers in *source_text* when available; otherwise
-    *fallback_column* (first listed source column) as the label.
+    *quotes* may be structured dicts or plain strings.
     """
-    clean_quotes = [_clean(q) for q in quotes if _clean(q)]
-    if not clean_quotes:
+    if quotes and isinstance(quotes[0], dict):
+        items = [dict(x) for x in quotes]  # type: ignore[arg-type]
+    else:
+        items = [{"column": "", "quote": _clean(q)} for q in quotes if _clean(q)]
+    if not items:
         return ""
-    sections = parse_sectioned_text(source_text)
-    fallback = _clean(fallback_column).split(",")[0].strip()
-    fallback = SECTION_DISPLAY.get(fallback) or SECTION_DISPLAY.get(fallback.lower()) or fallback or "quelle"
-    parts: List[str] = []
-    for q in clean_quotes:
-        if sections:
-            label = find_section_for_quote(q, sections)
-            if label == "unbekannt" and fallback:
-                label = fallback
-        else:
-            label = fallback
-        parts.append(f'{label}: "{q}"')
-    return " | ".join(parts)
+    items = enrich_evidence_columns_from_text(items, source_text)
+    for item in items:
+        if display_column(item.get("column") or "") in ("unbekannt",) and fallback_column:
+            item["column"] = fallback_column.split(",")[0].strip()
+    return format_structured_evidence(items)
 
 
 def extract_field_reasoning(aggregated: str, field: str) -> str:
@@ -186,7 +295,6 @@ def extract_field_reasoning(aggregated: str, field: str) -> str:
     headings = FIELD_REASONING_HEADINGS.get(field, (field,))
     matches = list(_HEADING_SPLIT.finditer(text))
     if not matches:
-        # Single-variable blob without headings — only OK if short / no other ### 
         return ""
     for idx, m in enumerate(matches):
         title = m.group(1).strip()
@@ -203,7 +311,6 @@ def reasoning_for_field(pred: Dict[str, Any], field: str) -> str:
     """Prefer per-variable column; else parse ### block; never dump all variables."""
     specific = _clean(pred.get(f"{field}_reasoning"))
     if specific:
-        # If somehow the whole multi-block landed in the per-field column, still trim.
         if "### " in specific and FIELD_REASONING_HEADINGS.get(field):
             trimmed = extract_field_reasoning(specific, field)
             return trimmed or specific.replace("\n", " ")
@@ -211,7 +318,9 @@ def reasoning_for_field(pred: Dict[str, Any], field: str) -> str:
     return extract_field_reasoning(_clean(pred.get("reasoning")), field)
 
 
-def source_text_for_field(pred: Dict[str, Any], field: str, text_by_fall: Optional[Dict[str, str]] = None) -> str:
+def source_text_for_field(
+    pred: Dict[str, Any], field: str, text_by_fall: Optional[Dict[str, str]] = None
+) -> str:
     """Best available source text for locating quote sections."""
     src = FIELD_TEXT_SOURCE.get(field, "report")
     verl = _clean(pred.get("verlegung_text"))
@@ -238,7 +347,7 @@ def source_text_for_field(pred: Dict[str, Any], field: str, text_by_fall: Option
 
 
 def load_verlegung_text_by_fall() -> Dict[str, str]:
-    """Load IPS Verlegung texts keyed by FallNummer (best-effort; empty if no raw data)."""
+    """Load IPS Verlegung texts keyed by FallNummer (best-effort)."""
     try:
         from src.preprocessing.verlegung_loader import (
             VERLEGUNG_TEXT_KEY,
@@ -256,3 +365,33 @@ def load_verlegung_text_by_fall() -> Dict[str, str]:
         for fall, info in by_fall.items()
         if normalize_str(info.get(VERLEGUNG_TEXT_KEY, ""))
     }
+
+
+def clinical_value_requires_evidence(fields: Dict[str, Any], task_fields: Sequence[Any]) -> bool:
+    """True if the primary clinical pred is set and not k.A. (and schema has evidence_quotes)."""
+    names = {getattr(f, "name", "") for f in task_fields}
+    if "evidence_quotes" not in names:
+        return False
+    for f in task_fields:
+        name = getattr(f, "name", "")
+        if name in ("reasoning", "evidence_quotes", "information_sufficient"):
+            continue
+        val = _clean(fields.get(name))
+        if not val:
+            continue
+        if val.lower() in ("k.a.", "k.a", "ka"):
+            return False
+        return True
+    return False
+
+
+def evidence_requirement_errors(fields: Dict[str, Any], task_fields: Sequence[Any]) -> List[str]:
+    """Schema-style errors when quotes missing for a non-k.A. prediction."""
+    if not clinical_value_requires_evidence(fields, task_fields):
+        return []
+    quotes = normalize_evidence_quotes(fields.get("evidence_quotes"))
+    if quotes:
+        return []
+    return [
+        "evidence_quotes must contain 1–3 {column, quote} objects when prediction is not k.A."
+    ]

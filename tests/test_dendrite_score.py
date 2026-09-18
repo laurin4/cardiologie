@@ -82,7 +82,7 @@ def test_align_and_score_smoke():
                 "pacemaker": "Neu",
                 "pacemaker_source_report": "Verlegungsbericht",
                 "pacemaker_source_columns": "diag, epikrise",
-                "pacemaker_evidence_quotes": '["SM neu implantiert"]',
+                "pacemaker_evidence_quotes": '[{"column":"diag","quote":"SM neu implantiert"}]',
                 "pacemaker_reasoning": "Neu",
                 "atrial_fibrillation": "Kein",
                 "cerebrovascular_event": "Keine",
@@ -113,6 +113,12 @@ def test_align_and_score_smoke():
     pm_pairs = result["pairs"]["pacemaker"]
     assert any(r.get("source_report") == "Verlegungsbericht" for r in pm_pairs)
     assert any("SM neu" in str(r.get("evidence_quotes", "")) for r in pm_pairs)
+    assert any(
+        str(r.get("source_columns", "")).startswith("diagnose")
+        or "diagnose" in str(r.get("source_columns", ""))
+        for r in pm_pairs
+        if "SM neu" in str(r.get("evidence_quotes", ""))
+    )
     cva_pairs = result["pairs"]["cerebrovascular_event"]
     assert any(r.get("scored") is False for r in cva_pairs)
 

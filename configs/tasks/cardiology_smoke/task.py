@@ -213,7 +213,11 @@ _AUDIT_FIELDS = (
         type="array",
         required=True,
         default=[],
-        description="Wörtliche Zitate aus der Diagnoseliste als Belege.",
+        description=(
+            'Belege als Array von {"column":"<Spalte>","quote":"<wörtlicher Satz>"}; '
+            "column: diag|epikrise|jetziges_leiden|prozedere|Diagnose_Value|stat_ein|anamn; "
+            "1–3 Einträge wenn Pred≠k.A., sonst []"
+        ),
     ),
 )
 
