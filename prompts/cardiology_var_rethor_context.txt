@@ -12,6 +12,14 @@ Zusätzlich: information_sufficient (true wenn du den Kontext sicher beurteilen 
 reasoning (Deutsch), evidence_quotes.
 Ausgabe nur als JSON.
 
+WICHTIG — evidence_quotes (Referenzierung):
+- Pflichtformat: JSON-Array von Objekten
+  {"column": "<Spalte>", "quote": "<exakter Satz aus dem Input>"}
+- Erlaubte column-Werte: diag, epikrise, jetziges_leiden, prozedere,
+  Diagnose_Value, stat_ein, anamn
+- 1–3 Zitate, wenn Kontext nicht leer ist; bei leerem Kontext: evidence_quotes = []
+- Keine Paraphrasen; quote muss im gelieferten Text vorkommen
+
 WICHTIG — Kontext / Negation (gilt allgemein):
 - Bewerte den gesamten Satz und nahen Kontext um Keywords, nicht das Keyword allein.
 - Explizite Verneinung oder Ausschluss („kein…“, „ohne…“, „ausgeschlossen“,
