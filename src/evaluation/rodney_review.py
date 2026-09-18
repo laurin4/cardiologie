@@ -57,12 +57,10 @@ def _text_source_for_variable(var_name: str) -> str:
 def build_long_rows(result_rows: list[dict], variables: Optional[Sequence[str]] = None) -> list[dict]:
     from src.evaluation.evidence_format import (
         columns_used_from_evidence,
-        enrich_evidence_columns_from_text,
         format_structured_evidence,
         load_verlegung_text_by_fall,
-        normalize_evidence_quotes,
         reasoning_for_field,
-        source_text_for_field,
+        resolve_evidence_items,
     )
 
     vars_ = list(variables) if variables is not None else list(CLINICAL_COLUMNS)
@@ -76,19 +74,15 @@ def build_long_rows(result_rows: list[dict], variables: Optional[Sequence[str]] 
         )
         for var in vars_:
             src_report = _clean(row.get(f"{var}_source_report"))
-            src_cols = _clean(row.get(f"{var}_source_columns"))
             if not src_report:
-                src_report, src_cols = provenance_for_text_source(_text_source_for_variable(var))
-            items = normalize_evidence_quotes(row.get(f"{var}_evidence_quotes"))
-            source_text = source_text_for_field(row, var, text_by_fall=text_by_fall)
+                src_report, _ = provenance_for_text_source(_text_source_for_variable(var))
+            items = resolve_evidence_items(row, var, text_by_fall=text_by_fall)
             if items:
-                items = enrich_evidence_columns_from_text(items, source_text)
                 tagged = format_structured_evidence(items)
-                used = columns_used_from_evidence(items)
-                if used:
-                    src_cols = used
+                src_cols = columns_used_from_evidence(items)
             else:
                 tagged = ""
+                src_cols = ""
             reasoning = reasoning_for_field(row, var)
             out.append(
                 {

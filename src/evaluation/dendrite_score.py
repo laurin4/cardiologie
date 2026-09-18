@@ -48,6 +48,8 @@ PAIR_COLUMNS = [
     "pred_raw",
     "pred",
     "match",
+    "scored",
+    "exclude_reason",
     "source_report",
     "source_columns",
     "evidence_quotes",
@@ -320,37 +322,28 @@ def provenance_from_pred_row(
     """Berichtstyp / genutzte Spalten / getaggte Snippets / Reasoning nur für diese Variable."""
     from src.evaluation.evidence_format import (
         columns_used_from_evidence,
-        enrich_evidence_columns_from_text,
         format_structured_evidence,
-        normalize_evidence_quotes,
         reasoning_for_field,
-        source_text_for_field,
+        resolve_evidence_items,
     )
     from src.preprocessing.verlegung_loader import provenance_for_text_source
 
     src_report = str(pred.get(f"{field}_source_report") or "").strip()
-    src_cols = str(pred.get(f"{field}_source_columns") or "").strip()
     if src_report.lower() in ("nan", "none", "null"):
         src_report = ""
-    if src_cols.lower() in ("nan", "none", "null"):
-        src_cols = ""
     if not src_report:
-        src_report, _fallback_cols = provenance_for_text_source(
+        src_report, _ = provenance_for_text_source(
             FIELD_TEXT_SOURCE.get(field, "report")
         )
-        if not src_cols:
-            src_cols = _fallback_cols
 
-    items = normalize_evidence_quotes(pred.get(f"{field}_evidence_quotes"))
-    source_text = source_text_for_field(pred, field, text_by_fall=text_by_fall)
+    items = resolve_evidence_items(pred, field, text_by_fall=text_by_fall)
     if items:
-        items = enrich_evidence_columns_from_text(items, source_text)
         tagged = format_structured_evidence(items)
-        used_cols = columns_used_from_evidence(items)
-        if used_cols:
-            src_cols = used_cols
+        src_cols = columns_used_from_evidence(items)
     else:
         tagged = ""
+        # Do NOT dump the full column menu when there is no citation.
+        src_cols = ""
 
     reasoning = reasoning_for_field(pred, field)
     return {
@@ -625,6 +618,45 @@ def format_score_report(result: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def select_patient_grid_for_export(
+    aligned: List[Dict[str, Any]],
+    pairs_by_field: Dict[str, List[Dict[str, Any]]],
+    *,
+    max_patients: Optional[int] = 25,
+    seed: int = 42,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Sample up to *max_patients* FallNummern, then keep EVERY field row for
+    those same patients → equal counts per diagnosis (e.g. 25 pacemaker, 25 AF).
+    """
+    import random
+
+    falls = [str(a.get("fall") or "") for a in aligned if a.get("fall")]
+    # unique preserve order
+    seen: set[str] = set()
+    uniq_falls: List[str] = []
+    for f in falls:
+        if f not in seen:
+            seen.add(f)
+            uniq_falls.append(f)
+
+    rng = random.Random(seed)
+    if max_patients is not None and max_patients > 0 and len(uniq_falls) > max_patients:
+        chosen = set(rng.sample(uniq_falls, max_patients))
+    else:
+        chosen = set(uniq_falls)
+
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for field, rows in pairs_by_field.items():
+        subset = [r for r in rows if str(r.get("fall") or "") in chosen]
+        subset = sorted(subset, key=lambda r: str(r.get("fall") or ""))
+        cleaned: List[Dict[str, Any]] = []
+        for r in subset:
+            cleaned.append({k: r.get(k, "") for k in PAIR_COLUMNS})
+        out[field] = cleaned
+    return out
+
+
 def select_complete_pairs_for_export(
     pairs_by_field: Dict[str, List[Dict[str, Any]]],
     *,
@@ -632,8 +664,8 @@ def select_complete_pairs_for_export(
     seed: int = 42,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
-    Keep only rows with both gold and pred (scored=True), then sample up to
-    *max_per_field* per variable.
+    Legacy: keep only scored=True rows, sample per field independently
+    (unequal counts). Prefer ``select_patient_grid_for_export`` for review.
     """
     import random
 
@@ -657,13 +689,16 @@ def run_dendrite_score(
     *,
     max_patients: Optional[int] = None,
     seed: int = 42,
-    complete_only: bool = True,
+    complete_only: bool = False,
 ) -> Dict[str, Any]:
     """
     Score predictions vs Dendrite gold.
 
-    Metrics use the full overlap. Export pairs default to complete rows only
-    (gold + pred both present), sampled to ``max_patients`` **per field**.
+    Metrics use the full overlap.
+
+    Export default (``complete_only=False``): sample *max_patients* patients,
+    then emit one row per diagnosis for those same patients (equal N per field),
+    with evidence backfilled from source text when LLM quotes are empty.
     """
     from src.evaluation.evidence_format import load_verlegung_text_by_fall
 
@@ -671,16 +706,28 @@ def run_dendrite_score(
     gold = load_dendrite_gold(dendrite_path)
     aligned = align_predictions_to_dendrite(preds, gold)
     text_by_fall = load_verlegung_text_by_fall()
+    # Also attach diagnose texts when present on pred rows (already in CSV if stored).
     result = score_aligned(aligned, text_by_fall=text_by_fall)
 
-    export_pairs = result.get("pairs") or {}
+    all_pairs = result.get("pairs") or {}
     if complete_only:
         export_pairs = select_complete_pairs_for_export(
-            export_pairs,
+            all_pairs,
             max_per_field=max_patients,
             seed=seed,
         )
+    else:
+        export_pairs = select_patient_grid_for_export(
+            aligned,
+            all_pairs,
+            max_patients=max_patients,
+            seed=seed,
+        )
+
     result["pairs"] = export_pairs
     result["n_patients_in_export"] = {f: len(rows) for f, rows in export_pairs.items()}
+    result["n_unique_falls_export"] = len(
+        {r.get("fall") for rows in export_pairs.values() for r in rows}
+    )
     result["complete_only"] = complete_only
     return result

@@ -190,10 +190,9 @@ Empty Dendrite cells → missing (not Nein).
 Finer extraction enums stay in the pipeline; collapse only when scoring against Dendrite Ja/Nein.
 
 ```bash
-# === Protocol A (recommended): 25 Dendrite-overlap patients, all variables ===
-# ~25 patients × 9 LLM calls ≈ 225 calls. Do NOT use --max-reports all.
-
+# Protocol A — 25 patients × every diagnosis (equal counts)
 cd ~/cardiologie && git pull
+export LLM_TIMEOUT=300
 
 python3 -m src.pipeline.pipeline \
   --task cardiology_smoke \
@@ -202,21 +201,13 @@ python3 -m src.pipeline.pipeline \
   --max-reports 25 \
   --output-dir outputs/extractions_dendrite_25
 
-# Review Excel: Gold vs Pred + column-tagged evidence + per-variable reasoning
+# Equal grid: 25 rows per field + evidence (LLM quotes or keyword backfill)
 python3 scripts/score_dendrite.py \
   --predictions outputs/extractions_dendrite_25/cardiology_smoke_results.csv \
   --dendrite "data/raw/Dendrite postop data set_LLM_v1.xlsx" \
   --max-patients 25 \
   --seed 42
-# evidence_quotes format in review Excel:
-#   diagnose: "wörtlicher Satz" | epikrise: "..."
-# source_columns = only columns that were actually cited (not the full menu).
-# LLM must return {"column":"...","quote":"..."} objects (see variable prompts).
-
-Filter order: Dendrite FallNummer overlap → then first 25 patients.
-Note: Score export keeps only rows with both gold and a scorable pred
-(`Unbekannt`/`k.A.` excluded). A field may therefore have fewer than 25
-complete pairs even though 25 patients were extracted.
+# -> outputs/evaluation/dendrite_score_pairs.xlsx  (open THIS)
 
 Writes `outputs/evaluation/dendrite_score.json` and `dendrite_score_pairs.csv`.
 Exit code `2` if FallNummer overlap with predictions is 0.

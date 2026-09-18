@@ -53,6 +53,8 @@ def _write_pairs_excel(df: pd.DataFrame, out_path: Path) -> None:
         "pred_raw": 18,
         "pred": 14,
         "match": 10,
+        "scored": 10,
+        "exclude_reason": 28,
         "source_report": 22,
         "source_columns": 36,
         "evidence_quotes": 55,
@@ -113,15 +115,19 @@ def main() -> None:
         type=int,
         default=25,
         help=(
-            "Max complete (gold+pred) rows to export per variable (default: 25). "
-            "Use 0 for all complete pairs."
+            "Number of patients in the review grid (default: 25). "
+            "Same FallNummern for every diagnosis → equal row counts. "
+            "Use 0 for all overlapping patients."
         ),
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
-        "--include-incomplete",
+        "--complete-only",
         action="store_true",
-        help="Also export rows missing gold or pred (Unbekannt/k.A.). Default: complete only.",
+        help=(
+            "Legacy: export only rows with both gold and scorable pred "
+            "(unequal counts per field). Default is the equal patient grid."
+        ),
     )
     args = parser.parse_args()
 
@@ -158,15 +164,30 @@ def main() -> None:
         dend_path,
         max_patients=max_patients,
         seed=args.seed,
-        complete_only=not args.include_incomplete,
+        complete_only=args.complete_only,
     )
     report = format_score_report(result)
     print(report)
     n_export = result.get("n_patients_in_export", {})
     print(
-        f"Export rows per field (complete gold+pred): {n_export} "
-        f"(max-patients={args.max_patients}, seed={args.seed})"
+        f"Export rows per field (equal patient grid unless --complete-only): {n_export} "
+        f"| unique falls={result.get('n_unique_falls_export')} "
+        f"(max-patients={args.max_patients}, seed={args.seed}, "
+        f"complete_only={args.complete_only})"
     )
+    counts = list(n_export.values()) if n_export else []
+    if counts and len(set(counts)) > 1 and not args.complete_only:
+        print("WARNING: unequal field counts — unexpected for patient-grid mode.")
+    if counts and all(c == 0 for c in counts):
+        raise SystemExit("Export has 0 rows.")
+    empty_ev = 0
+    for rows in (result.get("pairs") or {}).values():
+        empty_ev += sum(1 for r in rows if not str(r.get("evidence_quotes") or "").strip())
+    if empty_ev:
+        print(
+            f"NOTE: {empty_ev} export rows still have empty evidence_quotes "
+            "(no LLM quotes and no keyword hits in source text)."
+        )
 
     out_dir = Path(args.output_dir) if args.output_dir else OUTPUTS_DIR / "evaluation"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -175,7 +196,8 @@ def main() -> None:
         "dendrite": str(dend_path),
         "n_aligned_fall": result["n_aligned_fall"],
         "n_patients_in_export": result.get("n_patients_in_export"),
-        "complete_only": result.get("complete_only", True),
+        "complete_only": result.get("complete_only", False),
+        "n_unique_falls_export": result.get("n_unique_falls_export"),
         "max_patients": args.max_patients,
         "seed": args.seed,
         "per_field": result["per_field"],
@@ -190,13 +212,19 @@ def main() -> None:
         columns=PAIR_COLUMNS
     )
     pairs_path = out_dir / "dendrite_score_pairs.csv"
-    df.to_csv(pairs_path, index=False, sep=";", encoding="utf-8-sig")
+    df.to_csv(
+        pairs_path,
+        index=False,
+        sep=";",
+        encoding="utf-8-sig",
+        quoting=1,  # csv.QUOTE_ALL — prevents column shift in Excel
+    )
     xlsx_path = out_dir / "dendrite_score_pairs.xlsx"
     _write_pairs_excel(df, xlsx_path)
 
     print(f"Wrote {json_path}")
-    print(f"Wrote {pairs_path}")
-    print(f"Wrote {xlsx_path}")
+    print(f"Wrote {pairs_path} (semicolon, all fields quoted)")
+    print(f"Wrote {xlsx_path}  ← use this file for review")
     if result["n_aligned_fall"] == 0:
         raise SystemExit(2)
 

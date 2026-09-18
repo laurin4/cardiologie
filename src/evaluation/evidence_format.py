@@ -367,6 +367,61 @@ def load_verlegung_text_by_fall() -> Dict[str, str]:
     }
 
 
+def backfill_evidence_from_rules(field: str, source_text: str) -> List[Dict[str, str]]:
+    """
+    When the LLM left evidence_quotes empty, rebuild cited sentences from the
+    source text using the same keyword/section rules as the pipeline.
+    """
+    text = _clean(source_text)
+    if not text or not field:
+        return []
+    try:
+        from configs.tasks import load_task
+        from src.extraction.rule_evidence import extract_rule_evidence
+        from src.pipeline.pipeline import _variable_as_task
+    except Exception:
+        return []
+
+    task = load_task("cardiology_smoke")
+    var = next((v for v in (task.variables or ()) if v.name == field), None)
+    if var is None:
+        return []
+    mini = _variable_as_task(task, var)
+    bundle = extract_rule_evidence(text, mini)
+    items: List[Dict[str, str]] = []
+    seen: set[str] = set()
+    for snip in bundle.get("evidence_snippets") or []:
+        quote = _clean(snip.get("text"))
+        if not quote:
+            continue
+        key = _normalize_for_match(quote)
+        if key in seen:
+            continue
+        seen.add(key)
+        section = _clean(snip.get("section")) or "unbekannt"
+        if section.lower() in ("unknown", "unk", ""):
+            section = "unbekannt"
+        items.append({"column": section, "quote": quote})
+    return items
+
+
+def resolve_evidence_items(
+    pred: Dict[str, Any],
+    field: str,
+    *,
+    text_by_fall: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, str]]:
+    """LLM quotes first; otherwise keyword backfill from source text."""
+    items = normalize_evidence_quotes(pred.get(f"{field}_evidence_quotes"))
+    source_text = source_text_for_field(pred, field, text_by_fall=text_by_fall)
+    if items:
+        return enrich_evidence_columns_from_text(items, source_text)
+    return enrich_evidence_columns_from_text(
+        backfill_evidence_from_rules(field, source_text),
+        source_text,
+    )
+
+
 def clinical_value_requires_evidence(fields: Dict[str, Any], task_fields: Sequence[Any]) -> bool:
     """True if the primary clinical pred is set and not k.A. (and schema has evidence_quotes)."""
     names = {getattr(f, "name", "") for f in task_fields}
