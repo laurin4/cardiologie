@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.preprocessing.report_identity import normalize_str
@@ -356,8 +357,14 @@ def source_text_for_field(
     return verl or diag or _clean(pred.get("report_text"))
 
 
-def load_verlegung_text_by_fall() -> Dict[str, str]:
-    """Load IPS Verlegung texts keyed by FallNummer (best-effort)."""
+def load_verlegung_text_by_fall(
+    paths: Optional[Sequence[Path]] = None,
+) -> Dict[str, str]:
+    """Load Verlegung texts keyed by FallNummer (best-effort).
+
+    Default discover prefers IPS; if none found, falls back to classic
+    ``HER_Verlegungsbericht*`` (needed for 2026 cohorts).
+    """
     try:
         from src.preprocessing.verlegung_loader import (
             VERLEGUNG_TEXT_KEY,
@@ -366,10 +373,15 @@ def load_verlegung_text_by_fall() -> Dict[str, str]:
         )
     except Exception:
         return {}
-    paths = discover_her_verlegung_paths()
-    if not paths:
+    if paths is not None:
+        resolved = list(paths)
+    else:
+        resolved = discover_her_verlegung_paths()  # IPS-only default
+        if not resolved:
+            resolved = discover_her_verlegung_paths(ips_only=False)
+    if not resolved:
         return {}
-    by_fall = load_verlegung_by_fall(paths)
+    by_fall = load_verlegung_by_fall(resolved)
     return {
         fall: normalize_str(info.get(VERLEGUNG_TEXT_KEY, ""))
         for fall, info in by_fall.items()

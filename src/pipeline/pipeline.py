@@ -895,9 +895,11 @@ def main() -> None:
         nargs="*",
         default=None,
         help=(
-            "One or more HER Diagnose CSV/Excel paths (merged by PatientID), "
-            "a reports table, or a .txt directory. "
-            "If omitted, all HER_Diagnose* files under data/raw/ are used."
+            "One or more HER clinical tables (Verlegung and/or Diagnose and/or "
+            "Austritt), a reports CSV/Excel, or a .txt directory. "
+            "Explicit paths disable auto-discover of other years. "
+            "OP-Bericht files are ignored for now. "
+            "If omitted, IPS Verlegung (else all HER_Diagnose*) under data/raw/."
         ),
     )
     parser.add_argument("--output-dir", default=None, help="Output directory for results.")

@@ -153,13 +153,48 @@ Nine LLM calls per patient (one per variable). Text source is per variable
 - Final Re-Op / Re-Thor from structured OP / Opsbericht when available
 
 **Source files (clinic)**
-- Verlegung: only `HER_IPS_Verlegungsbericht_2025*` (`ips_only=True` default)
+- Default discover: only `HER_IPS_Verlegungsbericht*` (`ips_only=True`)
+- Explicit `--reports` paths: classic `HER_Verlegungsbericht*` also OK (e.g. 2026);
+  no auto-pull of other years’ Diagnose/Austritt/Verlegung
 - Default cohort: Verlegung-primary (Diagnose + Austritt attached via FallNummer)
-- Austritt: `HER_Austrittsbericht_2025*` for cirrhosis
+- Austritt: `HER_Austrittsbericht*` for cirrhosis (`stat_ein`, `anamn`)
+- `HER_OP_Bericht*`: ignored for now (loader TBD; warn only)
 
 Prompts: `prompts/cardiology_smoke_*.txt`, `prompts/cardiology_var_*.txt`.
 Keywords: `configs/tasks/cardiology_smoke/task.py`.
 Start with `--max-reports 2` when testing.
+
+### 2026 full cohort (no Dendrite / no gold)
+
+Place **only** these under `data/raw/` (or pass paths explicitly):
+
+- `HER_Verlegungsbericht_2026_01_08.csv` (classic Verlegung = cohort driver)
+- `HER_Diagnose_202601_202606.csv`
+- `HER_Austrittsbericht_2026_01_08.csv`
+- `HER_OP_Bericht_2026_01_08.csv` (optional; currently ignored)
+
+```bash
+cd clinical_extraction_framework
+export LLM_TIMEOUT=300
+
+python3 -m src.pipeline.pipeline \
+  --task cardiology_smoke \
+  --reports \
+    data/raw/HER_Verlegungsbericht_2026_01_08.csv \
+    data/raw/HER_Diagnose_202601_202606.csv \
+    data/raw/HER_Austrittsbericht_2026_01_08.csv \
+    data/raw/HER_OP_Bericht_2026_01_08.csv \
+  --max-reports all \
+  --output-dir outputs/extractions_2026
+
+# Review grid: all patients × all variables (no Dendrite)
+python3 scripts/export_rodney_sample.py \
+  --results outputs/extractions_2026/cardiology_smoke_results.csv \
+  --no-dendrite \
+  --n-patients 0 \
+  --format both \
+  --out outputs/evaluation/rodney_review_2026_all
+```
 
 ### Next: new Verlegung data → run → validate
 

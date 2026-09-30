@@ -125,6 +125,13 @@ def test_filter_dendrite_overlap():
     assert "F100" in kept[0]["fall_nummers"]
 
 
+def test_sample_patients_zero_means_all():
+    from src.evaluation.rodney_review import sample_patients
+
+    rows = [{"patient_id": f"P{i}", "verlegung_fallnr": f"F{i}"} for i in range(5)]
+    assert len(sample_patients(rows, n_patients=0)) == 5
+
+
 def test_write_rodney_files(tmp_path):
     rows = [
         {

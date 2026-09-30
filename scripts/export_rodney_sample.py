@@ -26,8 +26,9 @@ from src.evaluation.rodney_review import (
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Export Rodney review for exactly N Dendrite-overlap patients; "
-            "all variables for the same patients (equal counts)."
+            "Export Rodney review for N patients × all variables "
+            "(equal counts). Default filters to Dendrite overlap; "
+            "use --no-dendrite for full cohort review without gold."
         )
     )
     parser.add_argument(
@@ -38,13 +39,18 @@ def main() -> None:
     parser.add_argument(
         "--dendrite",
         default=None,
-        help="Dendrite gold file (default: discover under data/raw/)",
+        help="Dendrite gold file (default: discover under data/raw/). Ignored with --no-dendrite.",
+    )
+    parser.add_argument(
+        "--no-dendrite",
+        action="store_true",
+        help="Skip Dendrite overlap filter; export from prediction rows as-is (2026 / no-gold runs).",
     )
     parser.add_argument(
         "--n-patients",
         type=int,
         default=25,
-        help="Number of patients to include (default: 25). Same set for every variable.",
+        help="Number of patients to include (default: 25). Use 0 for all patients.",
     )
     parser.add_argument(
         "--n-per-var",
@@ -61,7 +67,7 @@ def main() -> None:
     parser.add_argument(
         "--out",
         default=None,
-        help="Output path base (default: outputs/evaluation/rodney_review_25)",
+        help="Output path base (default: outputs/evaluation/rodney_review_*)",
     )
     parser.add_argument(
         "--no-enrich-fall",
@@ -95,33 +101,40 @@ def main() -> None:
         else:
             raise SystemExit(f"Results not found: {results_path}")
 
-    if args.dendrite:
-        dend_path = Path(args.dendrite)
-    else:
-        found = discover_dendrite_paths(RAW_DATA_DIR)
-        if not found:
-            raise SystemExit(
-                f"No Dendrite* under {RAW_DATA_DIR}. Pass --dendrite explicitly."
-            )
-        dend_path = found[0]
-
     rows = load_result_rows(results_path)
     if not args.no_enrich_fall:
         rows = enrich_fall_keys_from_raw(rows)
 
-    fall_ids = load_dendrite_fall_ids(dend_path)
-    overlapped = filter_dendrite_overlap(rows, fall_ids)
-    print(
-        f"Dendrite overlap: {len(overlapped)}/{len(rows)} result rows "
-        f"(Dendrite FallNummers={len(fall_ids)} from {dend_path.name})"
-    )
-    if not overlapped:
-        raise SystemExit(
-            "No Dendrite-overlap rows. Re-run pipeline with --dendrite and IPS Verlegung primary."
-        )
+    if args.no_dendrite:
+        pool = rows
+        print(f"No Dendrite filter: {len(pool)} prediction rows from {results_path}")
+    else:
+        if args.dendrite:
+            dend_path = Path(args.dendrite)
+        else:
+            found = discover_dendrite_paths(RAW_DATA_DIR)
+            if not found:
+                raise SystemExit(
+                    f"No Dendrite* under {RAW_DATA_DIR}. "
+                    "Pass --dendrite explicitly or use --no-dendrite."
+                )
+            dend_path = found[0]
 
-    patients = sample_patients(overlapped, n_patients=n_patients, seed=args.seed)
-    print(f"Selected {len(patients)} patients (seed={args.seed})")
+        fall_ids = load_dendrite_fall_ids(dend_path)
+        pool = filter_dendrite_overlap(rows, fall_ids)
+        print(
+            f"Dendrite overlap: {len(pool)}/{len(rows)} result rows "
+            f"(Dendrite FallNummers={len(fall_ids)} from {dend_path.name})"
+        )
+        if not pool:
+            raise SystemExit(
+                "No Dendrite-overlap rows. Re-run pipeline with --dendrite "
+                "and IPS Verlegung primary, or use --no-dendrite."
+            )
+
+    patients = sample_patients(pool, n_patients=n_patients, seed=args.seed)
+    label = "all" if n_patients <= 0 else str(len(patients))
+    print(f"Selected {len(patients)} patients (requested={label}, seed={args.seed})")
 
     variables = args.variables or list(CLINICAL_COLUMNS)
     long_rows = build_long_rows(patients, variables=variables)
@@ -135,7 +148,14 @@ def main() -> None:
     if len(set(counts.values())) > 1:
         raise SystemExit("Internal error: unequal variable row counts after patient sampling.")
 
-    base = Path(args.out) if args.out else Path("outputs/evaluation") / f"rodney_review_{n_patients}"
+    if args.out:
+        base = Path(args.out)
+    elif args.no_dendrite:
+        suffix = "all" if n_patients <= 0 else str(len(patients))
+        base = Path("outputs/evaluation") / f"rodney_review_2026_{suffix}"
+    else:
+        base = Path("outputs/evaluation") / f"rodney_review_{n_patients if n_patients > 0 else 'all'}"
+
     written: list[Path] = []
     if args.format in ("csv", "both"):
         csv_path = base if base.suffix.lower() == ".csv" else base.with_suffix(".csv")

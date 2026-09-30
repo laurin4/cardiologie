@@ -266,12 +266,14 @@ def filter_reports_with_verlegung(records: List[dict]) -> List[dict]:
     return kept
 
 
-def _attach_diagnose_by_fall(records: List[dict]) -> List[dict]:
+def _attach_diagnose_by_fall(
+    records: List[dict], diagnose_paths: Optional[Sequence[Path]] = None
+) -> List[dict]:
     """Optional: attach Diagnoseliste text onto Verlegung-primary rows via FallNummer."""
     from src.preprocessing.diagnose_loader import load_patient_diagnoseliste_many
     from src.preprocessing.verlegung_loader import DIAGNOSELISTE_TEXT_KEY
 
-    her_paths = discover_her_diagnose_paths()
+    her_paths = list(diagnose_paths) if diagnose_paths is not None else discover_her_diagnose_paths()
     if not her_paths:
         return records
     patients = load_patient_diagnoseliste_many(her_paths)
@@ -296,23 +298,36 @@ def _attach_diagnose_by_fall(records: List[dict]) -> List[dict]:
             rec["patient_id"] = p["patient_id"]
         rec["input_kind"] = "patient_verlegung+diagnoseliste"
     LOGGER.info(
-        "Attached Diagnoseliste via FallNummer to %d / %d Verlegung-primary records",
+        "Attached Diagnoseliste via FallNummer to %d / %d Verlegung-primary records "
+        "from %d Diagnose file(s)",
         n_hit,
         len(records),
+        len(her_paths),
     )
     return records
 
 
 def _finalize_side_sources(
-    records: List[dict], *, verlegung_paths: Optional[Sequence[Path]] = None
+    records: List[dict],
+    *,
+    verlegung_paths: Optional[Sequence[Path]] = None,
+    austritt_paths: Optional[Sequence[Path]] = None,
+    auto_discover_austritt: bool = True,
 ) -> List[dict]:
     from src.preprocessing.austritt_loader import discover_her_austritt_paths
-    from src.preprocessing.verlegung_loader import discover_her_verlegung_paths
 
     if verlegung_paths is not None:
         records = _attach_verlegung(records, list(verlegung_paths))
-    records = _attach_austritt(records, discover_her_austritt_paths())
+    if austritt_paths is not None:
+        records = _attach_austritt(records, list(austritt_paths))
+    elif auto_discover_austritt:
+        records = _attach_austritt(records, discover_her_austritt_paths())
     return records
+
+
+def _looks_like_op_bericht(path: Path) -> bool:
+    name = path.name.lower()
+    return "op" in name and "bericht" in name and "verlegung" not in name
 
 
 def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
@@ -320,11 +335,13 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
     Load reports from *source*.
 
     - Explicit directory           -> txt files
-    - HER Diagnose CSV/Excel       -> patient Diagnoseliste; merge IPS Verlegung
-      2025 + Austrittsbericht via FallNummer
-    - HER IPS Verlegung only       -> one row per FallNummer; attach Diagnose + Austritt
-    - ``None``                     -> all HER_Diagnose* (+ IPS Verlegung + Austritt)
+    - HER Diagnose CSV/Excel       -> patient Diagnoseliste; merge Verlegung + Austritt
+    - HER Verlegung (IPS or classic) -> one row per FallNummer; attach Diagnose + Austritt
+    - Explicit mix of Diagnose + Verlegung + Austritt paths -> use only those files
+      (no auto-discover of other years)
+    - ``None``                     -> IPS Verlegung primary if present, else Diagnose
     """
+    from src.preprocessing.austritt_loader import looks_like_her_austritt_table
     from src.preprocessing.diagnose_loader import (
         load_patient_diagnoseliste_many,
         looks_like_her_diagnose_table,
@@ -385,30 +402,58 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
         and looks_like_her_verlegung_table(p)
         and p not in her_paths
     ]
-    other_paths = [p for p in paths if p not in her_paths and p not in verlegung_paths]
+    austritt_paths = [
+        p
+        for p in paths
+        if (p.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(p))
+        and looks_like_her_austritt_table(p)
+        and p not in her_paths
+        and p not in verlegung_paths
+    ]
+    op_paths = [
+        p
+        for p in paths
+        if p not in her_paths
+        and p not in verlegung_paths
+        and p not in austritt_paths
+        and _looks_like_op_bericht(p)
+    ]
+    if op_paths:
+        LOGGER.warning(
+            "OP-Bericht file(s) ignored for now (loader TBD): %s",
+            ", ".join(p.name for p in op_paths),
+        )
+    other_paths = [
+        p
+        for p in paths
+        if p not in her_paths
+        and p not in verlegung_paths
+        and p not in austritt_paths
+        and p not in op_paths
+    ]
 
-    if other_paths and (her_paths or verlegung_paths):
+    if other_paths and (her_paths or verlegung_paths or austritt_paths):
         raise ValueError(
             "Cannot mix HER clinical tables with other report sources in one call. "
             f"other={ [p.name for p in other_paths] }"
         )
 
-    if her_paths:
-        LOGGER.info(
-            "Loading %d HER Diagnose file(s): %s",
-            len(her_paths),
-            ", ".join(p.name for p in her_paths),
-        )
-        records = load_patient_diagnoseliste_many(her_paths)
-        attach = verlegung_paths or discover_her_verlegung_paths()
-        return _finalize_side_sources(records, verlegung_paths=attach)
+    # Explicit file list: do not auto-pull other years' Austritt/Diagnose/Verlegung.
+    explicit = bool(her_paths or verlegung_paths or austritt_paths)
+    austritt_arg: Optional[Sequence[Path]] = list(austritt_paths) if explicit else None
+    auto_austritt = not explicit
 
-    if verlegung_paths and not her_paths:
+    if verlegung_paths:
         from src.preprocessing.verlegung_loader import (
             VERLEGUNG_TEXT_KEY,
             load_verlegung_by_fall,
         )
 
+        LOGGER.info(
+            "Loading %d HER Verlegung file(s) as primary cohort: %s",
+            len(verlegung_paths),
+            ", ".join(p.name for p in verlegung_paths),
+        )
         by_fall = load_verlegung_by_fall(verlegung_paths)
         records = []
         for i, (fall, info) in enumerate(by_fall.items()):
@@ -426,8 +471,39 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
                     **clean,
                 }
             )
-        records = _attach_diagnose_by_fall(records)
-        return _finalize_side_sources(records, verlegung_paths=None)
+        if her_paths:
+            records = _attach_diagnose_by_fall(records, her_paths)
+        elif not explicit:
+            records = _attach_diagnose_by_fall(records, None)
+        return _finalize_side_sources(
+            records,
+            verlegung_paths=None,
+            austritt_paths=austritt_arg if explicit else None,
+            auto_discover_austritt=auto_austritt,
+        )
+
+    if her_paths:
+        LOGGER.info(
+            "Loading %d HER Diagnose file(s): %s",
+            len(her_paths),
+            ", ".join(p.name for p in her_paths),
+        )
+        records = load_patient_diagnoseliste_many(her_paths)
+        attach_verl = verlegung_paths if verlegung_paths else (
+            None if explicit else discover_her_verlegung_paths()
+        )
+        return _finalize_side_sources(
+            records,
+            verlegung_paths=attach_verl,
+            austritt_paths=austritt_arg if explicit else None,
+            auto_discover_austritt=auto_austritt,
+        )
+
+    if austritt_paths and not her_paths and not verlegung_paths:
+        raise ValueError(
+            "Austrittsbericht alone is not a cohort driver. "
+            "Pass HER_Verlegungsbericht and/or HER_Diagnose together with it."
+        )
 
     if len(paths) == 1:
         path = paths[0]

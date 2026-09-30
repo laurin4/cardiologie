@@ -103,9 +103,12 @@ def enrich_fall_keys_from_raw(
     )
 
     diag_paths = list(diagnose_paths) if diagnose_paths is not None else discover_her_diagnose_paths()
-    verl_paths = (
-        list(verlegung_paths) if verlegung_paths is not None else discover_her_verlegung_paths()
-    )
+    if verlegung_paths is not None:
+        verl_paths = list(verlegung_paths)
+    else:
+        verl_paths = discover_her_verlegung_paths()
+        if not verl_paths:
+            verl_paths = discover_her_verlegung_paths(ips_only=False)
     if not diag_paths:
         LOGGER.warning("No HER_Diagnose* under data/raw/; cannot enrich FallNummer.")
         return result_rows
