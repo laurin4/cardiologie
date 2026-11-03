@@ -21,6 +21,7 @@ import argparse
 import json
 import logging
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -316,17 +317,32 @@ class ClinicalExtractionPipeline:
         original_len = len(fallback_text)
 
         for var in self.task.variables:
-            raw_var_text = select_text_for_source(report, getattr(var, "text_source", "report"))
+            text_source = getattr(var, "text_source", "report") or "report"
+            raw_var_text = select_text_for_source(report, text_source)
+            if not raw_var_text:
+                missing_values = getattr(var, "values_when_source_missing", None)
+                if missing_values is not None and report.get(f"{text_source}_source_loaded"):
+                    self._apply_source_missing_values(
+                        var, text_source, missing_values, merged, stages, reason_parts
+                    )
+                    n_var_extracted += 1
+                    continue
+                fallback_source = getattr(var, "fallback_text_source", "") or ""
+                if fallback_source:
+                    text_source = fallback_source
+                    raw_var_text = select_text_for_source(report, text_source)
             text = clean_report_text(raw_var_text) if raw_var_text else ""
             if not text and fallback_text:
                 text = fallback_text
             mini = _variable_as_task(self.task, var)
+            if text_source in (getattr(var, "full_text_sources", ()) or ()):
+                mini = replace(mini, evidence_groups=(), send_full_text_when_no_evidence=True)
             evidence = extract_rule_evidence(text, mini)
             stages.append(
                 {
                     "stage": "rule_evidence",
                     "variable": var.name,
-                    "text_source": getattr(var, "text_source", "report"),
+                    "text_source": text_source,
                     "action": "extract_rule_evidence",
                     "reduction_method": evidence["reduction_method"],
                     "keyword_hits_count": evidence["keyword_hits_count"],
@@ -383,9 +399,7 @@ class ClinicalExtractionPipeline:
             quotes = _merge_quotes(quotes, var_quotes)
 
             # Per-variable provenance for Rodney review (idiotensicher).
-            src_report, src_cols = provenance_for_text_source(
-                getattr(var, "text_source", "report")
-            )
+            src_report, src_cols = provenance_for_text_source(text_source)
             merged[f"{var.name}_source_report"] = src_report
             merged[f"{var.name}_source_columns"] = src_cols
             merged[f"{var.name}_evidence_quotes"] = (
@@ -438,6 +452,41 @@ class ClinicalExtractionPipeline:
                 "llm_report_text_length": llm_text_len,
             },
         }
+
+    @staticmethod
+    def _apply_source_missing_values(
+        var: VariableSpec,
+        text_source: str,
+        values: Dict[str, Any],
+        merged: Dict[str, Any],
+        stages: List[Dict[str, Any]],
+        reason_parts: List[str],
+    ) -> None:
+        """Source loaded but no entry for this case: set configured values, no LLM."""
+        from src.preprocessing.verlegung_loader import provenance_for_text_source
+
+        src_report, src_cols = provenance_for_text_source(text_source)
+        for f in var.fields:
+            if f.name in ("reasoning", "evidence_quotes", "information_sufficient"):
+                continue
+            merged[f.name] = values.get(f.name, f.default)
+        shown = ", ".join(f"{k}={v!r}" for k, v in values.items())
+        reason = f"Kein Eintrag im {src_report} (Quelle geladen) → regelbasiert: {shown}."
+        reason_parts.append(f"### {var.label}\n{reason}")
+        merged[f"{var.name}_source_report"] = src_report
+        merged[f"{var.name}_source_columns"] = src_cols
+        merged[f"{var.name}_evidence_quotes"] = "[]"
+        merged[f"{var.name}_reasoning"] = reason
+        merged[f"_suff_{var.name}"] = True
+        stages.append(
+            {
+                "stage": "source_missing_rule",
+                "variable": var.name,
+                "text_source": text_source,
+                "action": "set_values_without_llm",
+                "values": dict(values),
+            }
+        )
 
     def run_report(self, report: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Run all stages for one report. Returns ``(csv_row, structured_record)``."""

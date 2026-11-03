@@ -208,6 +208,51 @@ def _attach_austritt(records: List[dict], austritt_paths: Sequence[Path]) -> Lis
     return records
 
 
+def _attach_reop(records: List[dict], reop_paths: Sequence[Path]) -> List[dict]:
+    """Attach Re-OP follow-up operations via FallNummer.
+
+    The Re-OP export lists only cases with a follow-up OP, so every record is
+    flagged ``reop_source_loaded=True``; a missing match means "no Re-OP".
+    """
+    if not reop_paths:
+        return records
+    from src.preprocessing.reop_loader import (
+        REOP_LOADED_KEY,
+        REOP_TEXT_KEY,
+        load_reop_by_fall,
+        pick_reop_for_falls,
+    )
+
+    by_fall = load_reop_by_fall(reop_paths)
+    n_hit = 0
+    for rec in records:
+        rec[REOP_LOADED_KEY] = True
+        falls = list(rec.get("fall_nummers") or [])
+        vfall = normalize_str(rec.get("verlegung_fallnr", ""))
+        if vfall and vfall not in falls:
+            falls = [vfall, *falls]
+        info = pick_reop_for_falls(by_fall, falls)
+        if not info:
+            rec.setdefault(REOP_TEXT_KEY, "")
+            rec.setdefault("reop_n_ops", 0)
+            continue
+        n_hit += 1
+        rec.update(info)
+    LOGGER.info(
+        "Attached Re-OP reports via FallNummer to %d / %d records "
+        "(%d Re-OP FallNummer(n) available; unmatched records count as no Re-OP)",
+        n_hit,
+        len(records),
+        len(by_fall),
+    )
+    if records and n_hit == 0 and by_fall:
+        LOGGER.warning(
+            "Re-OP FallNummer join matched 0 records. Check that the Re-OP export "
+            "covers the same period as the cohort (all rows would become Nein)."
+        )
+    return records
+
+
 def _attach_verlegung(records: List[dict], verlegung_paths: Sequence[Path]) -> List[dict]:
     """Merge latest Verlegungsbericht onto Diagnoseliste records via FallNummer."""
     if not verlegung_paths:
@@ -313,8 +358,11 @@ def _finalize_side_sources(
     verlegung_paths: Optional[Sequence[Path]] = None,
     austritt_paths: Optional[Sequence[Path]] = None,
     auto_discover_austritt: bool = True,
+    reop_paths: Optional[Sequence[Path]] = None,
+    auto_discover_reop: bool = True,
 ) -> List[dict]:
     from src.preprocessing.austritt_loader import discover_her_austritt_paths
+    from src.preprocessing.reop_loader import discover_her_reop_paths
 
     if verlegung_paths is not None:
         records = _attach_verlegung(records, list(verlegung_paths))
@@ -322,6 +370,10 @@ def _finalize_side_sources(
         records = _attach_austritt(records, list(austritt_paths))
     elif auto_discover_austritt:
         records = _attach_austritt(records, discover_her_austritt_paths())
+    if reop_paths is not None:
+        records = _attach_reop(records, list(reop_paths))
+    elif auto_discover_reop:
+        records = _attach_reop(records, discover_her_reop_paths())
     return records
 
 
@@ -336,12 +388,13 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
 
     - Explicit directory           -> txt files
     - HER Diagnose CSV/Excel       -> patient Diagnoseliste; merge Verlegung + Austritt
-    - HER Verlegung (IPS or classic) -> one row per FallNummer; attach Diagnose + Austritt
-    - Explicit mix of Diagnose + Verlegung + Austritt paths -> use only those files
+    - HER Verlegung (IPS or classic) -> one row per FallNummer; attach Diagnose + Austritt + Re-OP
+    - Explicit mix of Diagnose + Verlegung + Austritt + Re-OP paths -> use only those files
       (no auto-discover of other years)
     - ``None``                     -> IPS Verlegung primary if present, else Diagnose
     """
     from src.preprocessing.austritt_loader import looks_like_her_austritt_table
+    from src.preprocessing.reop_loader import looks_like_her_reop_table
     from src.preprocessing.diagnose_loader import (
         load_patient_diagnoseliste_many,
         looks_like_her_diagnose_table,
@@ -410,12 +463,22 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
         and p not in her_paths
         and p not in verlegung_paths
     ]
+    reop_paths = [
+        p
+        for p in paths
+        if (p.suffix.lower() in _TABULAR_SUFFIXES or is_excel_path(p))
+        and p not in her_paths
+        and p not in verlegung_paths
+        and p not in austritt_paths
+        and looks_like_her_reop_table(p)
+    ]
     op_paths = [
         p
         for p in paths
         if p not in her_paths
         and p not in verlegung_paths
         and p not in austritt_paths
+        and p not in reop_paths
         and _looks_like_op_bericht(p)
     ]
     if op_paths:
@@ -429,10 +492,11 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
         if p not in her_paths
         and p not in verlegung_paths
         and p not in austritt_paths
+        and p not in reop_paths
         and p not in op_paths
     ]
 
-    if other_paths and (her_paths or verlegung_paths or austritt_paths):
+    if other_paths and (her_paths or verlegung_paths or austritt_paths or reop_paths):
         raise ValueError(
             "Cannot mix HER clinical tables with other report sources in one call. "
             f"other={ [p.name for p in other_paths] }"
@@ -442,6 +506,7 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
     explicit = bool(her_paths or verlegung_paths or austritt_paths)
     austritt_arg: Optional[Sequence[Path]] = list(austritt_paths) if explicit else None
     auto_austritt = not explicit
+    reop_arg: Optional[Sequence[Path]] = list(reop_paths) if explicit else None
 
     if verlegung_paths:
         from src.preprocessing.verlegung_loader import (
@@ -480,6 +545,8 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
             verlegung_paths=None,
             austritt_paths=austritt_arg if explicit else None,
             auto_discover_austritt=auto_austritt,
+            reop_paths=reop_arg,
+            auto_discover_reop=auto_austritt,
         )
 
     if her_paths:
@@ -497,6 +564,14 @@ def load_reports(source: SourceArg = None, **table_kwargs) -> List[dict]:
             verlegung_paths=attach_verl,
             austritt_paths=austritt_arg if explicit else None,
             auto_discover_austritt=auto_austritt,
+            reop_paths=reop_arg,
+            auto_discover_reop=auto_austritt,
+        )
+
+    if reop_paths and not her_paths and not verlegung_paths:
+        raise ValueError(
+            "Re-OP export alone is not a cohort driver. "
+            "Pass HER_Verlegungsbericht and/or HER_Diagnose together with it."
         )
 
     if austritt_paths and not her_paths and not verlegung_paths:

@@ -288,6 +288,7 @@ TEXT_SOURCE_PROVENANCE: Dict[str, Tuple[str, str]] = {
         "Diagnose_Value; diag, epikrise, jetziges_leiden, prozedere",
     ),
     "austritt": ("Austrittsbericht", "stat_ein, anamn"),
+    "reop": ("ReOP-Bericht", "Index_OPNw_Eingriff, operation"),
     "report": ("Report", "report_text"),
 }
 
@@ -302,9 +303,10 @@ def select_text_for_source(report: dict, text_source: str) -> str:
     Pick patient text for a variable's ``text_source``.
 
     ``report`` may contain ``diagnoseliste_text``, ``verlegung_text``,
-    ``austritt_text``, and/or legacy ``report_text``.
+    ``austritt_text``, ``reop_text``, and/or legacy ``report_text``.
     """
     from src.preprocessing.austritt_loader import AUSTRITT_TEXT_KEY
+    from src.preprocessing.reop_loader import REOP_TEXT_KEY
 
     diag = normalize_str(report.get(DIAGNOSELISTE_TEXT_KEY, ""))
     verl = normalize_str(report.get(VERLEGUNG_TEXT_KEY, ""))
@@ -322,6 +324,8 @@ def select_text_for_source(report: dict, text_source: str) -> str:
         return verl
     if src == "austritt":
         return austr
+    if src == "reop":
+        return normalize_str(report.get(REOP_TEXT_KEY, ""))
     if src == "both":
         parts = [p for p in (diag, verl) if p]
         if parts:

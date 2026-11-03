@@ -1,6 +1,6 @@
 {
   "task": "cardiology_smoke",
-  "description": "Kardiologie: IPS-Verlegung 2025 (primär) + Diagnoseliste + Austrittsbericht; je Variable eigene LLM-Abfrage und Textquelle. SWI out of scope.",
+  "description": "Kardiologie: IPS-Verlegung 2025 (primär) + Diagnoseliste + Austrittsbericht; je Variable eigene LLM-Abfrage und Textquelle. Re-Op/Re-Thor/Grund aus ReOP-Bericht (fehlender Fall = Nein). SWI out of scope.",
   "language": "de",
   "fields": [
     "pacemaker",
@@ -8,6 +8,7 @@
     "cerebrovascular_event",
     "reoperation_required",
     "reoperation_context",
+    "reoperation_reason",
     "multi_system_failure",
     "rethoracotomy",
     "rethoracotomy_context",
@@ -20,11 +21,12 @@
     "pacemaker": "verlegung",
     "atrial_fibrillation": "both",
     "cerebrovascular_event": "both",
-    "reoperation_required": "both (interim; final: structured OP)",
-    "reoperation_context": "both (interim; deferred: reason enums)",
+    "reoperation_required": "reop (ReOP-Bericht; missing case = Nein); fallback both",
+    "reoperation_context": "reop; fallback both",
+    "reoperation_reason": "reop (missing case = Keine); fallback both",
     "multi_system_failure": "verlegung",
-    "rethoracotomy": "verlegung (interim; final: Opsbericht)",
-    "rethoracotomy_context": "verlegung (interim)",
+    "rethoracotomy": "reop (missing case = Nein); fallback verlegung",
+    "rethoracotomy_context": "reop; fallback verlegung",
     "liver_cirrhosis": "austritt (stat_ein, anamn; Child-Pugh enums)"
   },
   "enums": {
@@ -40,6 +42,19 @@
       "Unbekannt",
       "k.A."
     ],
+    "reoperation_reason": [
+      "Keine",
+      "Blutung/Tamponade",
+      "Wunde/Infektion/Sternum",
+      "Mechanische Kreislaufunterstützung",
+      "Geplanter Folgeeingriff",
+      "Kardial (Klappe/Graft/Myokard)",
+      "Rhythmus/Schrittmacher",
+      "Gefäss/peripher",
+      "Andere",
+      "Unbekannt",
+      "k.A."
+    ],
     "yn": ["Nein", "Ja", "Unbekannt", "k.A."]
   },
   "policy": {
@@ -49,7 +64,8 @@
     "unclear_or_suspicion": "Unbekannt (incl. V.a. alone; temporary pacemaker alone; organ failure without explicit MOV)",
     "not_in_text": "k.A. (keine Angabe)",
     "reoperation": "Ja only if further OP during same stay; Index-Redo alone ≠ Ja",
-    "deferred": "Re-Op reason enums; SWI Superficial/Deep (out of scope for LLM); OP-Bericht loader",
+    "reop_source": "HER_*REOP* export lists only cases with a follow-up OP: when loaded, absent FallNummer → Nein/Keine without LLM call; not loaded → fallback text source",
+    "deferred": "SWI Superficial/Deep (out of scope for LLM); reoperation_reason → Dendrite code mapping; general HER_OP_Bericht loader",
     "evidence_quotes": "array of {column, quote}; export as column: \"verbatim sentence\"",
     "swi": "sternal wound infection is out of scope for LLM extraction",
     "verlegung_source": "HER_IPS_Verlegungsbericht* default discover (ips_only=True); classic HER_Verlegungsbericht* via explicit --reports (e.g. 2026)"

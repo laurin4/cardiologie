@@ -5,15 +5,19 @@ Clinical variables (one LLM call each; one patient row):
   - pacemaker                    Neu|Schon vorhanden|Kein|Unbekannt|k.A. ← Verlegung
   - atrial_fibrillation          Neu|Vorbestehend|Kein|Unbekannt|k.A.    ← both
   - cerebrovascular_event        Keine|TIA|Schlaganfall|Unbekannt|k.A.   ← both
-  - reoperation_required         Nein|Ja|Unbekannt|k.A.   ← interim text (final: strukturiert)
-  - reoperation_context          Freitext                 ← interim (final: Gründe ggf. Enum)
+  - reoperation_required         Nein|Ja|Unbekannt|k.A.   ← ReOP-Bericht (else both)
+  - reoperation_context          Freitext                 ← ReOP-Bericht (else both)
+  - reoperation_reason           Keine|Blutung/Tamponade|…|Unbekannt|k.A. ← ReOP-Bericht
   - multi_system_failure         Nein|Ja|Unbekannt|k.A.   ← Verlegungsbericht
-  - rethoracotomy                Nein|Ja|Unbekannt|k.A.   ← interim Verlegung (final: Opsbericht)
-  - rethoracotomy_context        Freitext                 ← interim
+  - rethoracotomy                Nein|Ja|Unbekannt|k.A.   ← ReOP-Bericht (else Verlegung)
+  - rethoracotomy_context        Freitext                 ← ReOP-Bericht (else Verlegung)
   - liver_cirrhosis              Child-Pugh Enums ← Austrittsbericht (stat_ein/anamn)
 
 SWI (sternal wound infection) is out of scope for LLM extraction.
-Deferred: Re-Op reason enums; SWI Superficial/Deep.
+ReOP-Bericht lists only cases with a follow-up OP: when loaded, a FallNummer
+without entry → Nein / Keine (no LLM call). Without the export (e.g. 2025
+Protocol A) the Re-OP variables fall back to Verlegung / Diagnoseliste text.
+Deferred: SWI Superficial/Deep; mapping reoperation_reason → Dendrite codes.
 Verlegung source: HER_IPS_Verlegungsbericht_2025 only (clinic).
 Keywords/prompts/outputs: German; field names: English.
 Policy:
@@ -27,7 +31,7 @@ Policy:
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 from configs.tasks.base import (
     EvidenceGroup,
@@ -215,7 +219,8 @@ _AUDIT_FIELDS = (
         default=[],
         description=(
             'Belege als Array von {"column":"<Spalte>","quote":"<wörtlicher Satz>"}; '
-            "column: diag|epikrise|jetziges_leiden|prozedere|Diagnose_Value|stat_ein|anamn; "
+            "column: diag|epikrise|jetziges_leiden|prozedere|Diagnose_Value|stat_ein|anamn|"
+            "Index_OPNw_Eingriff|operation; "
             "mindestens 1 Eintrag wenn Pred≠k.A., alle relevanten Sätze "
             "(kein festes Maximum); bei k.A.: []"
         ),
@@ -242,6 +247,7 @@ def _yn_variable(
     description: str,
     evidence_group_names: Tuple[str, ...],
     text_source: str = "report",
+    **source_options: Any,
 ) -> VariableSpec:
     field = _yn_field(name, description)
     return VariableSpec(
@@ -259,6 +265,7 @@ def _yn_variable(
             },
         ),
         text_source=text_source,
+        **source_options,
     )
 
 
@@ -270,6 +277,7 @@ def _text_variable(
     description: str,
     evidence_group_names: Tuple[str, ...],
     text_source: str = "report",
+    **source_options: Any,
 ) -> VariableSpec:
     field = SchemaField(
         name=name,
@@ -292,7 +300,19 @@ def _text_variable(
             },
         ),
         text_source=text_source,
+        **source_options,
     )
+
+
+# Re-OP export (HER_*REOP*): lists only cases WITH a follow-up OP.
+# Loaded but no entry for this FallNummer → no Re-OP (no LLM call).
+# Not loaded for this run (e.g. 2025 Protocol A) → previous text source.
+def _reop_source(fallback: str, missing: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "fallback_text_source": fallback,
+        "values_when_source_missing": missing,
+        "full_text_sources": ("reop",),
+    }
 
 
 _FIELD_PACEMAKER = SchemaField(
@@ -334,7 +354,8 @@ _FIELD_REOP = _yn_field(
     "reoperation_required",
     "Weitere Operation im gleichen Spitalaufenthalt (Nein/Ja/Unbekannt/k.A.). "
     "Index-Redo allein (z.B. geplanter Re-MKE) zählt nicht als Ja. "
-    "Kontext: Freitext (reoperation_context).",
+    "Quelle: ReOP-Bericht (fehlender Fall = Nein), sonst Diagnoseliste+Verlegung. "
+    "Kontext: Freitext (reoperation_context); Grund: reoperation_reason.",
 )
 _FIELD_REOP_CTX = SchemaField(
     name="reoperation_context",
@@ -354,7 +375,59 @@ _FIELD_MSF = _yn_field(
 _FIELD_RETHOR = _yn_field(
     "rethoracotomy",
     "Re-Thorakotomie durchgeführt (Nein/Ja/Unbekannt/k.A.). "
-    "Interim: Verlegungsbericht; final geplant über Operationsbericht.",
+    "Quelle: ReOP-Bericht (fehlender Fall = Nein), sonst Verlegungsbericht.",
+)
+
+_REOP_REASON_ENUM = (
+    "Keine",
+    "Blutung/Tamponade",
+    "Wunde/Infektion/Sternum",
+    "Mechanische Kreislaufunterstützung",
+    "Geplanter Folgeeingriff",
+    "Kardial (Klappe/Graft/Myokard)",
+    "Rhythmus/Schrittmacher",
+    "Gefäss/peripher",
+    "Andere",
+    "Unbekannt",
+    "k.A.",
+)
+_REOP_REASON_NORMALIZE: Dict[str, str] = {
+    **_KA_NORMALIZE,
+    "keine": "Keine",
+    "Kein": "Keine",
+    "kein": "Keine",
+    "Nein": "Keine",
+    "nein": "Keine",
+    "None": "Keine",
+    "none": "Keine",
+    "Blutung": "Blutung/Tamponade",
+    "Tamponade": "Blutung/Tamponade",
+    "Nachblutung": "Blutung/Tamponade",
+    "Wundheilungsstörung": "Wunde/Infektion/Sternum",
+    "Infektion": "Wunde/Infektion/Sternum",
+    "Sternuminstabilität": "Wunde/Infektion/Sternum",
+    "ECMO": "Mechanische Kreislaufunterstützung",
+    "Impella": "Mechanische Kreislaufunterstützung",
+    "geplant": "Geplanter Folgeeingriff",
+    "Geplant": "Geplanter Folgeeingriff",
+    "Schrittmacher": "Rhythmus/Schrittmacher",
+    "Kardial": "Kardial (Klappe/Graft/Myokard)",
+    "Unknown": "Unbekannt",
+    "unknown": "Unbekannt",
+    "unbekannt": "Unbekannt",
+}
+_FIELD_REOP_REASON = SchemaField(
+    name="reoperation_reason",
+    type="enum",
+    enum=_REOP_REASON_ENUM,
+    required=True,
+    default="Unbekannt",
+    description=(
+        "Hauptgrund der ersten (ungeplanten) Folge-OP: "
+        + " / ".join(_REOP_REASON_ENUM)
+        + ". Nur geplante/gestufte Folge-OPs (VAC-Wechsel, sekundärer Verschluss, "
+        "ECMO-/Impella-Ausbau) → Geplanter Folgeeingriff. Keine Folge-OP → Keine."
+    ),
 )
 _FIELD_RETHOR_CTX = SchemaField(
     name="rethoracotomy_context",
@@ -676,7 +749,8 @@ VARIABLE_REOP = _yn_variable(
     prompt_name="cardiology_smoke_reop",
     description=_FIELD_REOP.description,
     evidence_group_names=("reeingriff", "verneinung"),
-    text_source="both",
+    text_source="reop",
+    **_reop_source("both", {"reoperation_required": "Nein"}),
 )
 VARIABLE_REOP_CTX = _text_variable(
     name="reoperation_context",
@@ -684,7 +758,25 @@ VARIABLE_REOP_CTX = _text_variable(
     prompt_name="cardiology_var_reop_context",
     description=_FIELD_REOP_CTX.description,
     evidence_group_names=("reeingriff", "verneinung"),
-    text_source="both",
+    text_source="reop",
+    **_reop_source("both", {"reoperation_context": ""}),
+)
+VARIABLE_REOP_REASON = VariableSpec(
+    name="reoperation_reason",
+    label="Re-Operation Grund",
+    prompt_name="cardiology_var_reop_reason",
+    fields=(_FIELD_REOP_REASON, *_AUDIT_FIELDS),
+    evidence_group_names=("reeingriff", "rethorakotomie", "verneinung"),
+    consistency_rules=(
+        {"type": "normalize", "field": "reoperation_reason", "map": _REOP_REASON_NORMALIZE},
+        {
+            "type": "requires",
+            "if": {"information_sufficient": True},
+            "then_required": ["reasoning", "reoperation_reason"],
+        },
+    ),
+    text_source="reop",
+    **_reop_source("both", {"reoperation_reason": "Keine"}),
 )
 VARIABLE_MSF = _yn_variable(
     name="multi_system_failure",
@@ -700,7 +792,8 @@ VARIABLE_RETHOR = _yn_variable(
     prompt_name="cardiology_var_rethoracotomy",
     description=_FIELD_RETHOR.description,
     evidence_group_names=("rethorakotomie", "reeingriff", "verneinung"),
-    text_source="verlegung",
+    text_source="reop",
+    **_reop_source("verlegung", {"rethoracotomy": "Nein"}),
 )
 VARIABLE_RETHOR_CTX = _text_variable(
     name="rethoracotomy_context",
@@ -708,7 +801,8 @@ VARIABLE_RETHOR_CTX = _text_variable(
     prompt_name="cardiology_var_rethor_context",
     description=_FIELD_RETHOR_CTX.description,
     evidence_group_names=("rethorakotomie", "reeingriff", "verneinung"),
-    text_source="verlegung",
+    text_source="reop",
+    **_reop_source("verlegung", {"rethoracotomy_context": ""}),
 )
 VARIABLE_CIRRHOSIS = VariableSpec(
     name="liver_cirrhosis",
@@ -733,6 +827,7 @@ _CLINICAL_FIELDS = (
     _FIELD_CVA,
     _FIELD_REOP,
     _FIELD_REOP_CTX,
+    _FIELD_REOP_REASON,
     _FIELD_MSF,
     _FIELD_RETHOR,
     _FIELD_RETHOR_CTX,
@@ -745,6 +840,7 @@ _VARIABLES = (
     VARIABLE_CVA,
     VARIABLE_REOP,
     VARIABLE_REOP_CTX,
+    VARIABLE_REOP_REASON,
     VARIABLE_MSF,
     VARIABLE_RETHOR,
     VARIABLE_RETHOR_CTX,
@@ -757,7 +853,8 @@ TASK = ExtractionTask(
         "Kardiologie: IPS-Verlegung 2025 + Diagnoseliste + Austrittsbericht; "
         "je Variable eigene LLM-Abfrage und Textquelle. "
         "Zirrhose: Child-Pugh aus Austritt (stat_ein). "
-        "Re-Op: weitere OP im Aufenthalt. MOV nur explizit."
+        "Re-Op/Re-Thor/Grund: ReOP-Bericht (fehlender Fall = Nein), sonst Freitext. "
+        "MOV nur explizit."
     ),
     language="de",
     send_full_text_when_no_evidence=True,
@@ -771,6 +868,7 @@ TASK = ExtractionTask(
         {"type": "normalize", "field": "atrial_fibrillation", "map": _AF_NORMALIZE},
         {"type": "normalize", "field": "cerebrovascular_event", "map": _CVA_NORMALIZE},
         {"type": "normalize", "field": "reoperation_required", "map": _YN_NORMALIZE},
+        {"type": "normalize", "field": "reoperation_reason", "map": _REOP_REASON_NORMALIZE},
         {"type": "normalize", "field": "multi_system_failure", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "rethoracotomy", "map": _YN_NORMALIZE},
         {"type": "normalize", "field": "liver_cirrhosis", "map": _CIRRHOSIS_NORMALIZE},
@@ -783,6 +881,7 @@ TASK = ExtractionTask(
                 "atrial_fibrillation",
                 "cerebrovascular_event",
                 "reoperation_required",
+                "reoperation_reason",
                 "multi_system_failure",
                 "rethoracotomy",
                 "liver_cirrhosis",

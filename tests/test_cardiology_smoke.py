@@ -13,6 +13,17 @@ def _payload_for_system(system: str) -> dict:
     """Build a minimal valid JSON payload for whichever variable prompt is active."""
     checks = [
         (
+            "reoperation_reason (Hauptgrund",
+            {
+                "reoperation_reason": "Wunde/Infektion/Sternum",
+                "information_sufficient": True,
+                "reasoning": "Revision wegen Infektion.",
+                "evidence_quotes": [
+                    {"column": "diag", "quote": "Revisionseingriff wegen Infektion"}
+                ],
+            },
+        ),
+        (
             "pacemaker (permanenter Schrittmacher",
             {
                 "pacemaker": "Kein",
@@ -120,7 +131,7 @@ def test_cardiology_smoke_task_loads():
     task = load_task("cardiology_smoke")
     assert task.name == "cardiology_smoke"
     assert task.language == "de"
-    assert len(task.variables) == 9
+    assert len(task.variables) == 10
     assert task.field_by_name("sternal_wound_infection") is None
     assert task.field_by_name("cerebrovascular_event").enum == (
         "Keine",
@@ -217,7 +228,7 @@ def test_pipeline_one_call_per_variable(monkeypatch):
         "verlegung_fallnr": "F100",
     }
     row, structured = pipe.run_report(report)
-    assert calls["n"] == 9
+    assert calls["n"] == 10
     assert row["status"] == "extracted"
     assert row["patient_id"] == "P001"
     assert row["fall_nummers"] == "F100 | F200"
@@ -226,7 +237,7 @@ def test_pipeline_one_call_per_variable(monkeypatch):
     assert row["reoperation_required"] == "Ja"
     assert "Revisionseingriff" in row["reoperation_context"]
     assert structured["audit"]["per_variable_llm"] is True
-    assert len(structured["audit"]["llm"]["per_variable"]) == 9
+    assert len(structured["audit"]["llm"]["per_variable"]) == 10
     assert structured["one_hot"]["cerebrovascular_event__Keine"] == 1
     assert "sternal_wound_infection" not in row
 
@@ -271,7 +282,7 @@ def test_full_text_fallback_still_runs_all_variables(monkeypatch):
         "verlegung_text": "Ebenfalls ohne Keywords.",
     }
     row, _ = pipe.run_report(report)
-    assert called["n"] == 9
+    assert called["n"] == 10
     assert row["status"] == "extracted"
 
 

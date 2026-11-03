@@ -16,12 +16,23 @@ WICHTIG — was NICHT als Ja zählt:
 - Ja nur, wenn nach/neben der aktuellen Haupt-OP noch ein weiterer Eingriff
   im gleichen Aufenthalt dokumentiert ist.
 
+Eingabe kann ein ReOP-Bericht sein (strukturierter Export der Folge-OPs):
+  [Index_OPNw_Eingriff]  Index-Operation (Haupteingriff dieses Falls)
+  [operation]            nummerierte, chronologische Folge-OPs
+                         ("<Nr>. <Datum>: <OP-Titel> (Zugang: …)")
+Der ReOP-Export enthält NUR Fälle mit mindestens einer Folge-OP.
+Bei ReOP-Bericht:
+- Jede Folge-OP in [operation] ist ein weiterer Eingriff im Aufenthalt → Ja
+  (auch geplante/gestufte Eingriffe wie VAC-Wechsel oder sekundärer Thoraxverschluss).
+- Ausnahme: ein Eintrag, der identisch mit der Index-OP ist, zählt nicht.
+- Zitate: column "operation" (OP-Titel wörtlich, ohne Nummer/Datum).
+
 Zusätzlich: information_sufficient, reasoning (Deutsch), evidence_quotes.
 WICHTIG — evidence_quotes (Referenzierung):
 - Pflichtformat: JSON-Array von Objekten
   {"column": "<Spalte>", "quote": "<exakter Satz aus dem Input>"}
 - Erlaubte column-Werte: diag, epikrise, jetziges_leiden, prozedere,
-  Diagnose_Value, stat_ein, anamn
+  Diagnose_Value, stat_ein, anamn, Index_OPNw_Eingriff, operation
 - Mindestens 1 Zitat wenn Pred ≠ k.A.; alle für die Entscheidung relevanten Sätze zitieren (kein künstliches Maximum; typisch wenige, aber 4+ ok wenn nötig)
 - Bei k.A.: evidence_quotes = []
 - Keine Paraphrasen; quote muss im gelieferten Text vorkommen

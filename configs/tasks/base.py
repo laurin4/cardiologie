@@ -18,7 +18,7 @@ without creating import cycles.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 # Roles an evidence group can play in the rule layer.
 ROLE_POSITIVE = "positive"   # supports extraction; sent to the LLM
@@ -80,6 +80,8 @@ class VariableSpec:
       - ``diagnoseliste`` — HER Diagnoseliste only
       - ``verlegung`` — latest Verlegungsbericht sections only
       - ``both`` — Diagnoseliste + Verlegungsbericht concatenated
+      - ``austritt`` — latest Austrittsbericht (stat_ein, anamn)
+      - ``reop`` — Re-OP export (index OP + follow-up OP titles)
       - ``report`` — legacy: primary ``report_text`` field
     """
 
@@ -90,6 +92,15 @@ class VariableSpec:
     evidence_group_names: Tuple[str, ...]
     consistency_rules: Tuple[Dict[str, Any], ...] = ()
     text_source: str = "report"
+    # Used when ``text_source`` has no text because that source was not loaded
+    # for this run (e.g. no Re-OP export for the 2025 cohort).
+    fallback_text_source: str = ""
+    # When the source WAS loaded (record flag ``<text_source>_source_loaded``)
+    # but has no entry for this case, set these values without an LLM call.
+    # For exports that list only positive cases (e.g. Re-OP: absent → "Nein").
+    values_when_source_missing: Optional[Dict[str, Any]] = None
+    # Sources short/structured enough to send whole: skip keyword snippets.
+    full_text_sources: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

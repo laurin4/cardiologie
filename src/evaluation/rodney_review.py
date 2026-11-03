@@ -44,11 +44,12 @@ def _text_source_for_variable(var_name: str) -> str:
         "pacemaker": "verlegung",
         "atrial_fibrillation": "both",
         "cerebrovascular_event": "both",
-        "reoperation_required": "both",
-        "reoperation_context": "both",
+        "reoperation_required": "reop",
+        "reoperation_context": "reop",
+        "reoperation_reason": "reop",
         "multi_system_failure": "verlegung",
-        "rethoracotomy": "verlegung",
-        "rethoracotomy_context": "verlegung",
+        "rethoracotomy": "reop",
+        "rethoracotomy_context": "reop",
         "liver_cirrhosis": "austritt",
     }
     return defaults.get(var_name, "report")
