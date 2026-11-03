@@ -55,7 +55,8 @@ def _retry_user_suffix(task: ExtractionTask, attempt: int, *, evidence_retry: bo
             base += (
                 "\nevidence_quotes ist PFLICHT wenn die Diagnose nicht k.A. ist: "
                 'Objekte {"column":"diag|epikrise|jetziges_leiden|prozedere|'
-                'Diagnose_Value|stat_ein|anamn","quote":"<exakter Satz aus dem Text>"}. '
+                'Diagnose_Value|stat_ein|anamn|Index_OPNw_Eingriff|operation",'
+                '"quote":"<exakter Satz aus dem Text>"}. '
                 "Mindestens 1 Zitat; alle für die Entscheidung relevanten Sätze "
                 "(kein Maximum bei 3). Keine leeren Quotes."
             )

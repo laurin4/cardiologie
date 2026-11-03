@@ -94,7 +94,9 @@ Place sensitive HER exports under `data/raw/` as CSV/Excel (preferred):
   per **FallNummer** (`berdat`); sections `diag` / `epikrise` /
   `jetziges_leiden`|`jetztleid` / `prozedere`|`procedere`; joined onto
   Diagnoseliste patients via matching FallNummer
-- `HER_OPBericht*` — Operationsbericht (for Re-Thor / reasons; loader TBD)
+- `HER_*REOP*` — Re-OP export (index OP + one row per follow-up OP report;
+  lists **only** cases with a follow-up OP) → Re-Op / Re-Thor / reason, joined via **FallNummer**
+- `HER_OPBericht*` / `HER_OP_Bericht*` — general Operationsbericht (still ignored; loader TBD)
 - Dendrite postop gold (`Dendrite postop data set_LLM_v1*`) — validation labels
   (join via `FallNummer FID`)
 
@@ -125,8 +127,8 @@ Interpretability artifacts:
 
 ### Variables and labels (`cardiology_smoke`)
 
-Nine LLM calls per patient (one per variable). Text source is per variable
-(Verlegung, Diagnoseliste, both, or Austrittsbericht). Details:
+Ten variables per patient (one LLM call each). Text source is per variable
+(Verlegung, Diagnoseliste, both, Austrittsbericht, or Re-OP export). Details:
 `configs/tasks/cardiology_smoke/task.py` and `schema.json`.
 
 | Field | Enum / type | Source |
@@ -134,11 +136,12 @@ Nine LLM calls per patient (one per variable). Text source is per variable
 | `pacemaker` | `Neu` \| `Schon vorhanden` \| `Kein` \| `Unbekannt` \| `k.A.` | Verlegung |
 | `atrial_fibrillation` | `Neu` \| `Vorbestehend` \| `Kein` \| `Unbekannt` \| `k.A.` | both |
 | `cerebrovascular_event` | `Keine` \| `TIA` \| `Schlaganfall` \| `Unbekannt` \| `k.A.` | both |
-| `reoperation_required` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | both (weitere OP im Aufenthalt; Index-Redo ≠ Ja) |
-| `reoperation_context` | Freitext | both (interim) |
+| `reoperation_required` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | Re-OP (else both); weitere OP im Aufenthalt; Index-Redo ≠ Ja |
+| `reoperation_context` | Freitext | Re-OP (else both) |
+| `reoperation_reason` | `Keine` \| `Blutung/Tamponade` \| `Wunde/Infektion/Sternum` \| `Mechanische Kreislaufunterstützung` \| `Geplanter Folgeeingriff` \| `Kardial (Klappe/Graft/Myokard)` \| `Rhythmus/Schrittmacher` \| `Gefäss/peripher` \| `Andere` \| `Unbekannt` \| `k.A.` | Re-OP (else both) |
 | `multi_system_failure` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | Verlegung (nur explizites MOV) |
-| `rethoracotomy` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | Verlegung (interim) |
-| `rethoracotomy_context` | Freitext | Verlegung (interim) |
+| `rethoracotomy` | `Nein` \| `Ja` \| `Unbekannt` \| `k.A.` | Re-OP (else Verlegung) |
+| `rethoracotomy_context` | Freitext | Re-OP (else Verlegung) |
 | `liver_cirrhosis` | `Nein` \| `Ja (Child-Pugh unbekannt\|A\|B\|C)` \| `Unbekannt` \| `k.A.` | Austritt (`stat_ein`, `anamn`) |
 
 **Shared label policy**
@@ -147,10 +150,23 @@ Nine LLM calls per patient (one per variable). Text source is per variable
 - Mentioned but unclear / V.a. alone → `Unbekannt` (temporary pacemaker alone → `Unbekannt`, not `Neu`; organ failure without explicit MOV → `Unbekannt`)
 - Topic not in text → `k.A.` (keine Angabe)
 
+**Re-OP export (`HER_*REOP*`)**
+- One row per follow-up OP report: `FallNummer`, `Index_OPNw_Eingriff`, `berdat`,
+  `operation`, `zugang`. Grouped per FallNummer, chronological, sent **whole** to the
+  LLM (no keyword snippets). Quote columns: `Index_OPNw_Eingriff`, `operation`.
+- Detected by **file name** (`REOP` in the name). The general `HER_OP_Bericht*`
+  has the same `operation`/`zugang` columns but lists all OPs, so it stays ignored.
+- The export contains only cases WITH a follow-up OP. When it is loaded, a cohort
+  FallNummer without entry gets `reoperation_required=Nein`, `rethoracotomy=Nein`,
+  `reoperation_reason=Keine`, empty contexts — **no LLM call** (audit stage
+  `source_missing_rule`). Check that the export covers the cohort period.
+- Not loaded (e.g. 2025 Protocol A): the Re-OP variables fall back to the previous
+  sources (both / Verlegung), so older runs behave as before.
+- `reoperation_reason` categories are provisional (not yet the Dendrite codes).
+
 **Out of scope / deferred (no enum yet)**
 - SWI (sternal wound infection) — not extracted by LLM
-- Structured Re-Op reason enums — interim stays Freitext context
-- Final Re-Op / Re-Thor from structured OP / Opsbericht when available
+- Mapping `reoperation_reason` → Dendrite `Reoperationen` codes
 
 **Source files (clinic)**
 - Default discover: only `HER_IPS_Verlegungsbericht*` (`ips_only=True`)
@@ -158,6 +174,7 @@ Nine LLM calls per patient (one per variable). Text source is per variable
   no auto-pull of other years’ Diagnose/Austritt/Verlegung
 - Default cohort: Verlegung-primary (Diagnose + Austritt attached via FallNummer)
 - Austritt: `HER_Austrittsbericht*` for cirrhosis (`stat_ein`, `anamn`)
+- Re-OP: `HER_*REOP*` for Re-Op / Re-Thor / reason (attached via FallNummer)
 - `HER_OP_Bericht*`: ignored for now (loader TBD; warn only)
 
 Prompts: `prompts/cardiology_smoke_*.txt`, `prompts/cardiology_var_*.txt`.
@@ -171,6 +188,7 @@ Place **only** these under `data/raw/` (or pass paths explicitly):
 - `HER_Verlegungsbericht_2026_01_08.csv` (classic Verlegung = cohort driver)
 - `HER_Diagnose_202601_202606.csv`
 - `HER_Austrittsbericht_2026_01_08.csv`
+- `HER_2026_08_REOPBericht.csv` (Re-OP export; Re-Op / Re-Thor / reason)
 - `HER_OP_Bericht_2026_01_08.csv` (optional; currently ignored)
 
 ```bash
@@ -183,6 +201,7 @@ python3 -m src.pipeline.pipeline \
     data/raw/HER_Verlegungsbericht_2026_01_08.csv \
     data/raw/HER_Diagnose_202601_202606.csv \
     data/raw/HER_Austrittsbericht_2026_01_08.csv \
+    data/raw/HER_2026_08_REOPBericht.csv \
     data/raw/HER_OP_Bericht_2026_01_08.csv \
   --max-reports all \
   --output-dir outputs/extractions_2026

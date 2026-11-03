@@ -14,6 +14,7 @@ CLINICAL_COLUMNS = [
     "cerebrovascular_event",
     "reoperation_required",
     "reoperation_context",
+    "reoperation_reason",
     "multi_system_failure",
     "rethoracotomy",
     "rethoracotomy_context",

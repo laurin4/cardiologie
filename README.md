@@ -8,10 +8,11 @@ schema-validated and passed through deterministic clinical guardrails.
 The framework is **task-agnostic**: a new extraction problem is a new *task*
 (schema + keywords + prompt + rules), not new pipeline code. The primary
 application is **cardiology smoke** (`cardiology_smoke`): Diagnoseliste +
-Verlegungsbericht (join on **FallNummer**), one LLM call per clinical variable.
-Variables include pacemaker and atrial fibrillation (status enums), CVA
-(TIA/Schlaganfall), re-operation / re-thoracotomy (+ freitext context),
-multi-system failure, and liver cirrhosis. **SWI is out of scope** for LLM
+Verlegungsbericht + Austrittsbericht + Re-OP export (join on **FallNummer**), one
+LLM call per clinical variable. Variables include pacemaker and atrial fibrillation
+(status enums), CVA (TIA/Schlaganfall), re-operation / re-thoracotomy (+ freitext
+context and reason category, from the Re-OP export), multi-system failure, and
+liver cirrhosis. **SWI is out of scope** for LLM
 extraction. See `RUNBOOK.md` for labels, sources, and the validation workflow.
 A small neutral `demo_extraction` task ships so the pipeline runs and tests
 pass out of the box.
@@ -51,7 +52,8 @@ There is a single pipeline and **no reviewer cascade**.
 ```
 clinical_extraction_framework/
   src/
-    preprocessing/   clean_text, section_splitter, report_loader, report_identity, report_filters
+    preprocessing/   clean_text, section_splitter, report_loader, report_identity, report_filters,
+                     diagnose/verlegung/austritt/reop loaders (HER exports)
     extraction/      rule_evidence.py            (rule-based evidence engine)
     llm/             llm_interface, model_config, json_parsing, llm_debug, llm_extraction
     prompts/         registry.py                 (prompt loading + schema block)

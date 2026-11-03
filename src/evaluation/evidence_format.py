@@ -18,11 +18,22 @@ FIELD_TEXT_SOURCE: Dict[str, str] = {
     "pacemaker": "verlegung",
     "atrial_fibrillation": "both",
     "cerebrovascular_event": "both",
-    "reoperation_required": "both",
+    "reoperation_required": "reop",
+    "reoperation_context": "reop",
+    "reoperation_reason": "reop",
     "multi_system_failure": "verlegung",
+    "rethoracotomy": "reop",
+    "rethoracotomy_context": "reop",
+    "liver_cirrhosis": "austritt",
+}
+
+# Text source used when the primary source is absent for a row (no Re-OP export).
+FIELD_FALLBACK_TEXT_SOURCE: Dict[str, str] = {
+    "reoperation_required": "both",
+    "reoperation_context": "both",
+    "reoperation_reason": "both",
     "rethoracotomy": "verlegung",
     "rethoracotomy_context": "verlegung",
-    "liver_cirrhosis": "austritt",
 }
 
 # Input aliases → display label used in Excel (exact reviewer-facing names)
@@ -46,6 +57,11 @@ SECTION_DISPLAY: Dict[str, str] = {
     "Verlegungsbericht": "verlegung",
     "verlegung": "verlegung",
     "Diagnoseliste": "Diagnose_Value",
+    "Index_OPNw_Eingriff": "Index_OPNw_Eingriff",
+    "index_opnw_eingriff": "Index_OPNw_Eingriff",
+    "operation": "operation",
+    "ReOP-Bericht": "reop",
+    "reop": "reop",
 }
 
 ALLOWED_EVIDENCE_COLUMNS = (
@@ -60,6 +76,8 @@ ALLOWED_EVIDENCE_COLUMNS = (
     "stat_ein",
     "anamn",
     "anamnese",
+    "Index_OPNw_Eingriff",
+    "operation",
 )
 
 FIELD_REASONING_HEADINGS: Dict[str, Tuple[str, ...]] = {
@@ -78,6 +96,7 @@ FIELD_REASONING_HEADINGS: Dict[str, Tuple[str, ...]] = {
         "erneute Operation",
     ),
     "reoperation_context": ("Re-Operation Kontext", "reoperation_context"),
+    "reoperation_reason": ("Re-Operation Grund", "reoperation_reason"),
     "multi_system_failure": (
         "Multi-Organ-Versagen",
         "multi_system_failure",
@@ -91,7 +110,7 @@ FIELD_REASONING_HEADINGS: Dict[str, Tuple[str, ...]] = {
 EVIDENCE_SCHEMA_HINT_DE = (
     'Array von Objekten {"column":"<Spalte>","quote":"<wörtlicher Satz>"}; '
     "column eines von: diag, epikrise, jetziges_leiden, prozedere, Diagnose_Value, "
-    "stat_ein, anamn; mind. 1 Zitat wenn Pred≠k.A. (alle relevanten Sätze, kein Max-3), sonst []"
+    "stat_ein, anamn, Index_OPNw_Eingriff, operation; mind. 1 Zitat wenn Pred≠k.A. (alle relevanten Sätze, kein Max-3), sonst []"
 )
 
 _SECTION_SPLIT = re.compile(r"\[([^\]]+)\]\s*")
@@ -334,6 +353,15 @@ def source_text_for_field(
 ) -> str:
     """Best available source text for locating quote sections."""
     src = FIELD_TEXT_SOURCE.get(field, "report")
+    if src == "reop":
+        reop = _clean(pred.get("reop_text"))
+        if reop:
+            return reop
+        fall = normalize_str(pred.get("verlegung_fallnr") or pred.get("report_id") or "")
+        reop = load_reop_text_by_fall().get(fall, "")
+        if reop:
+            return reop
+        src = FIELD_FALLBACK_TEXT_SOURCE.get(field, "report")
     verl = _clean(pred.get("verlegung_text"))
     diag = _clean(pred.get("diagnoseliste_text"))
     austr = _clean(pred.get("austritt_text"))
@@ -387,6 +415,31 @@ def load_verlegung_text_by_fall(
         for fall, info in by_fall.items()
         if normalize_str(info.get(VERLEGUNG_TEXT_KEY, ""))
     }
+
+
+_REOP_TEXT_CACHE: Optional[Dict[str, str]] = None
+
+
+def load_reop_text_by_fall(paths: Optional[Sequence[Path]] = None) -> Dict[str, str]:
+    """Re-OP texts keyed by FallNummer (best-effort; default discover is cached)."""
+    global _REOP_TEXT_CACHE
+    if paths is None and _REOP_TEXT_CACHE is not None:
+        return _REOP_TEXT_CACHE
+    try:
+        from src.preprocessing.reop_loader import (
+            REOP_TEXT_KEY,
+            discover_her_reop_paths,
+            load_reop_by_fall,
+        )
+
+        resolved = list(paths) if paths is not None else discover_her_reop_paths()
+        by_fall = load_reop_by_fall(resolved) if resolved else {}
+    except Exception:
+        by_fall = {}
+    out = {fall: normalize_str(info.get(REOP_TEXT_KEY, "")) for fall, info in by_fall.items()}
+    if paths is None:
+        _REOP_TEXT_CACHE = out
+    return out
 
 
 def backfill_evidence_from_rules(field: str, source_text: str) -> List[Dict[str, str]]:

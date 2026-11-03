@@ -8,12 +8,26 @@ rethoracotomy (Re-Thorakotomie durchgeführt?)
    - Unbekannt: erwähnt, aber unklar / V.a.
    - k.A.: Thema Re-Thorakotomie kommt im Text nicht vor
 
+Eingabe kann ein ReOP-Bericht sein (strukturierter Export der Folge-OPs):
+  [Index_OPNw_Eingriff]  Index-Operation (Haupteingriff dieses Falls)
+  [operation]            nummerierte, chronologische Folge-OPs
+                         ("<Nr>. <Datum>: <OP-Titel> (Zugang: …)")
+Der ReOP-Export enthält NUR Fälle mit mindestens einer Folge-OP.
+Bei ReOP-Bericht:
+- Ja, wenn eine Folge-OP eine Rethorakotomie / Re-Thorakotomie / Resternotomie /
+  Re-Sternotomie / erneute Thorakotomie ist (auch "Rethorakotomie bei offenem
+  Thorax / Open Chest"), im OP-Titel oder Zugang.
+- Nein, wenn keine Folge-OP eine Re-Thorakotomie ist (z.B. nur VAC-Wechsel,
+  ECMO-Ausbau, Schrittmacher, periphere Revision).
+- Zugang allein "Mediane Resternotomie" bei einer Folge-OP → Ja.
+- Zitate: column "operation".
+
 Zusätzlich: information_sufficient, reasoning (Deutsch), evidence_quotes.
 WICHTIG — evidence_quotes (Referenzierung):
 - Pflichtformat: JSON-Array von Objekten
   {"column": "<Spalte>", "quote": "<exakter Satz aus dem Input>"}
 - Erlaubte column-Werte: diag, epikrise, jetziges_leiden, prozedere,
-  Diagnose_Value, stat_ein, anamn
+  Diagnose_Value, stat_ein, anamn, Index_OPNw_Eingriff, operation
 - Mindestens 1 Zitat wenn Pred ≠ k.A.; alle für die Entscheidung relevanten Sätze zitieren (kein künstliches Maximum; typisch wenige, aber 4+ ok wenn nötig)
 - Bei k.A.: evidence_quotes = []
 - Keine Paraphrasen; quote muss im gelieferten Text vorkommen
